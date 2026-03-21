@@ -1,5 +1,5 @@
 {
-  "version": "2.1",
+  "version": "3.9",
   "date": "21 maart 2026",
-  "whatsnew": "📱 Update-check functie toegevoegd\n✏️ Verbeterde factuurweergave\n📍 GPS nauwkeurigheid verbeterd\n🐛 Bugfixes"
+  "whatsnew": "📱 Automatische updates via GitHub\n📍 Betere locatienamen met straat + plaats\n👣 Stappenteller werkt nu correct (1 stap per stap)\n🗺️ GPS filter op 20 meter voor nauwkeurigere tracks\n🔘 Drie keer klikken op aan/uit knop opent de app\n📅 Werkdagen tonen standaard huidige maand"
 }
