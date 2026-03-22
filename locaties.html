@@ -29,20 +29,18 @@
     .filter-bar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
     .filter-bar select { width: auto; flex: 1; min-width: 150px; margin-top: 0; }
     .edit-coords-input { width: 100%; padding: 8px; border-radius: 16px; border: 1px solid #e2e8f0; font-family: monospace; }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1002; align-items: center; justify-content: center; }
+    .modal-content { background: white; border-radius: 32px; padding: 24px; width: 90%; max-width: 500px; }
   </style>
 </head>
 <body>
 
 <div class="card">
   <div class="filter-bar">
-    <select id="clientFilterSelect">
-      <option value="all">📍 Alle opdrachtgevers</option>
-    </select>
+    <select id="clientFilterSelect"><option value="all">📍 Alle opdrachtgevers</option></select>
     <button id="applyFilterBtn" class="btn-primary">🔍 Filter</button>
   </div>
-  
   <div id="locationsMap"></div>
-  
   <button id="showAddLocationFormBtn" class="btn-primary" style="margin-bottom: 16px;">➕ Nieuwe locatie toevoegen</button>
   
   <div id="addLocationForm" class="add-location-form">
@@ -57,7 +55,7 @@
     <div id="addressInput" class="address-input">
       <label>Adres</label>
       <input type="text" id="newLocationAddress" placeholder="Straat + huisnummer, postcode, plaats">
-      <button id="geocodeAddressBtn" class="btn-small" style="margin-top: 8px;">🔍 Zoek coördinaten</button>
+      <button id="geocodeAddressBtn" class="btn-small">🔍 Zoek coördinaten</button>
     </div>
     <label>Naam van de locatie</label>
     <input type="text" id="newLocationName" placeholder="Bijv. Het Wantveld">
@@ -75,6 +73,26 @@
   <div id="locationsManageContainer"></div>
 </div>
 
+<!-- Bewerk Modal -->
+<div id="editLocationModal" class="modal">
+  <div class="modal-content">
+    <h3>✏️ Locatie bewerken</h3>
+    <input type="hidden" id="editLocationId">
+    <label>Naam</label>
+    <input type="text" id="editLocationName">
+    <label>Coördinaten (bijv: 52.363384, 4.659315)</label>
+    <input type="text" id="editLocationCoords">
+    <label>Opdrachtgever</label>
+    <select id="editLocationClient"></select>
+    <label>Straal (meters)</label>
+    <input type="number" id="editLocationRadius" step="10">
+    <div class="button-group" style="margin-top: 16px;">
+      <button id="saveEditLocationBtn" class="btn-primary">✅ Opslaan</button>
+      <button id="cancelEditLocationBtn" class="btn-secondary">❌ Annuleren</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
 <script>
 let userDefinedLocations = [];
@@ -83,7 +101,7 @@ let currentLocationType = 'coords';
 let map;
 let markers = [];
 let currentFilterClient = 'all';
-let editIndex = null; // Voor bewerken
+let editIndex = null;
 
 function showWarning(msg){ 
   if(window.parent && window.parent.postMessage) {
@@ -109,6 +127,7 @@ function loadContacts() {
 function updateClientSelects() {
   const clientSelect = document.getElementById('locationClientSelect');
   const filterSelect = document.getElementById('clientFilterSelect');
+  const editClientSelect = document.getElementById('editLocationClient');
   if(clientSelect) {
     clientSelect.innerHTML = '<option value="">-- Geen opdrachtgever --</option>';
     contacts.forEach(c => {
@@ -116,6 +135,15 @@ function updateClientSelects() {
       opt.value = c.id;
       opt.textContent = getContactDisplayName(c);
       clientSelect.appendChild(opt);
+    });
+  }
+  if(editClientSelect) {
+    editClientSelect.innerHTML = '<option value="">-- Geen opdrachtgever --</option>';
+    contacts.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = getContactDisplayName(c);
+      editClientSelect.appendChild(opt);
     });
   }
   if(filterSelect) {
@@ -141,24 +169,16 @@ function initMap() {
 function updateMapMarkers() {
   markers.forEach(m => map.removeLayer(m));
   markers = [];
-  
-  let filteredLocations = userDefinedLocations;
-  if(currentFilterClient !== 'all') {
-    filteredLocations = userDefinedLocations.filter(loc => loc.clientId == currentFilterClient);
-  }
-  
-  filteredLocations.forEach(loc => {
+  let filtered = userDefinedLocations;
+  if(currentFilterClient !== 'all') filtered = userDefinedLocations.filter(loc => loc.clientId == currentFilterClient);
+  filtered.forEach(loc => {
     const client = contacts.find(c => c.id == loc.clientId);
-    const clientName = client ? getContactDisplayName(client) : 'Geen opdrachtgever';
+    const clientName = client ? getContactDisplayName(client) : 'Geen';
     const marker = L.marker([loc.lat, loc.lng]).addTo(map);
     marker.bindPopup(`<b>${escapeHtml(loc.name)}</b><br>👤 ${escapeHtml(clientName)}<br>📌 ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}<br>📏 Straal: ${loc.radius}m`);
     markers.push(marker);
   });
-  
-  if(filteredLocations.length > 0) {
-    const bounds = L.latLngBounds(filteredLocations.map(l => [l.lat, l.lng]));
-    map.fitBounds(bounds, { padding: [50, 50] });
-  }
+  if(filtered.length > 0) map.fitBounds(L.latLngBounds(filtered.map(l => [l.lat, l.lng])), { padding: [50, 50] });
 }
 
 function loadUserLocations() { 
@@ -182,10 +202,7 @@ function updateAllStopsWithLocationNames() {
         if(stop.lat && stop.lng) {
           for(const loc of userDefinedLocations) {
             if(getDistanceBetweenCoords(stop.lat, stop.lng, loc.lat, loc.lng) * 1000 <= loc.radius) {
-              if(loc.name !== stop.location) { 
-                stop.location = loc.name; 
-                updated = true;
-              }
+              if(loc.name !== stop.location) { stop.location = loc.name; updated = true; }
               break;
             }
           }
@@ -193,104 +210,80 @@ function updateAllStopsWithLocationNames() {
       });
     }
   });
-  if(updated) { 
-    localStorage.setItem('workSessionsList', JSON.stringify(sessions));
-    showWarning('✅ Locaties bijgewerkt in werkdagen');
-  }
+  if(updated) { localStorage.setItem('workSessionsList', JSON.stringify(sessions)); showWarning('✅ Locaties bijgewerkt in werkdagen'); }
 }
 
 function renderLocationsManager() {
   const container = document.getElementById('locationsManageContainer');
   if(!container) return;
-  
-  let filteredLocations = userDefinedLocations;
-  if(currentFilterClient !== 'all') {
-    filteredLocations = userDefinedLocations.filter(loc => loc.clientId == currentFilterClient);
-  }
-  
-  if(!filteredLocations.length) { 
+  let filtered = userDefinedLocations;
+  if(currentFilterClient !== 'all') filtered = userDefinedLocations.filter(loc => loc.clientId == currentFilterClient);
+  if(!filtered.length) { 
     if(userDefinedLocations.length > 0 && currentFilterClient !== 'all') {
       const client = contacts.find(c => c.id == currentFilterClient);
-      container.innerHTML = `<div class="card" style="background:#f8fafc;">📭 Geen locaties voor ${client ? getContactDisplayName(client) : 'deze opdrachtgever'}</div>`;
-    } else {
-      container.innerHTML = '<div class="card" style="background:#f8fafc;">📭 Nog geen locaties toegevoegd.</div>';
-    }
+      container.innerHTML = `<div class="card">📭 Geen locaties voor ${client ? getContactDisplayName(client) : 'deze opdrachtgever'}</div>`;
+    } else { container.innerHTML = '<div class="card">📭 Nog geen locaties toegevoegd.</div>'; }
     return; 
   }
-  
-  container.innerHTML = filteredLocations.map((loc, idx) => {
+  container.innerHTML = filtered.map((loc, idx) => {
     const originalIdx = userDefinedLocations.findIndex(l => l.id === loc.id);
     const client = contacts.find(c => c.id == loc.clientId);
     const clientName = client ? getContactDisplayName(client) : 'Geen';
     return `
-      <div class="location-item" data-idx="${originalIdx}">
+      <div class="location-item">
         <div class="location-name">📍 ${escapeHtml(loc.name)}</div>
         <div class="location-coords">👤 ${escapeHtml(clientName)} | 📌 ${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} | 📏 Straal: ${loc.radius}m</div>
         <div class="button-group">
-          <button class="edit-location" data-idx="${originalIdx}" style="background:#f59e0b;" class="btn-small">✏️ Bewerken</button>
-          <button class="delete-location" data-idx="${originalIdx}" style="background:#ef4444;" class="btn-small">🗑️ Verwijderen</button>
+          <button class="edit-location-btn" data-idx="${originalIdx}" style="background:#f59e0b;">✏️ Bewerken</button>
+          <button class="delete-location-btn" data-idx="${originalIdx}" style="background:#ef4444;">🗑️ Verwijderen</button>
         </div>
       </div>
     `;
   }).join('');
   
-  // Event listeners voor bewerken en verwijderen
-  document.querySelectorAll('.edit-location').forEach(btn => {
-    btn.onclick = () => editLocation(parseInt(btn.dataset.idx));
-  });
-  document.querySelectorAll('.delete-location').forEach(btn => {
-    btn.onclick = () => deleteLocation(parseInt(btn.dataset.idx));
-  });
+  document.querySelectorAll('.edit-location-btn').forEach(btn => btn.onclick = () => openEditModal(parseInt(btn.dataset.idx)));
+  document.querySelectorAll('.delete-location-btn').forEach(btn => btn.onclick = () => deleteLocation(parseInt(btn.dataset.idx)));
 }
 
-function editLocation(idx) {
+function openEditModal(idx) {
   const loc = userDefinedLocations[idx];
   if(!loc) return;
+  editIndex = idx;
+  document.getElementById('editLocationId').value = loc.id;
+  document.getElementById('editLocationName').value = loc.name;
+  document.getElementById('editLocationCoords').value = `${loc.lat}, ${loc.lng}`;
+  document.getElementById('editLocationRadius').value = loc.radius;
+  const clientSelect = document.getElementById('editLocationClient');
+  if(clientSelect) clientSelect.value = loc.clientId || '';
+  document.getElementById('editLocationModal').style.display = 'flex';
+}
+
+function saveEditLocation() {
+  if(editIndex === null) return;
+  const newName = document.getElementById('editLocationName').value.trim();
+  const coordsStr = document.getElementById('editLocationCoords').value.trim();
+  const coords = parseCoords(coordsStr);
+  const newRadius = parseFloat(document.getElementById('editLocationRadius').value);
+  const newClientId = document.getElementById('editLocationClient').value;
   
-  const newName = prompt('Nieuwe naam:', loc.name);
-  if(newName && newName !== loc.name) { 
-    userDefinedLocations[idx].name = newName; 
-    saveUserLocations(); 
-    showWarning(`✅ Locatie hernoemd naar "${newName}"`); 
-  }
+  if(!newName) { showWarning('❌ Vul een naam in'); return; }
+  if(!coords) { showWarning('❌ Ongeldige coördinaten. Gebruik formaat: 52.123456, 4.123456'); return; }
+  if(isNaN(newRadius)) { showWarning('❌ Vul een geldige straal in'); return; }
   
-  const newCoords = prompt('Nieuwe coördinaten (bijv: 52.363384, 4.659315):', `${loc.lat}, ${loc.lng}`);
-  if(newCoords) {
-    const coords = parseCoords(newCoords);
-    if(coords) {
-      userDefinedLocations[idx].lat = coords.lat;
-      userDefinedLocations[idx].lng = coords.lng;
-      saveUserLocations();
-      showWarning(`✅ Coördinaten bijgewerkt`);
-    } else {
-      showWarning('❌ Ongeldige coördinaten. Gebruik formaat: 52.123456, 4.123456');
-    }
-  }
+  userDefinedLocations[editIndex].name = newName;
+  userDefinedLocations[editIndex].lat = coords.lat;
+  userDefinedLocations[editIndex].lng = coords.lng;
+  userDefinedLocations[editIndex].radius = newRadius;
+  userDefinedLocations[editIndex].clientId = newClientId || null;
   
-  const clientSelect = document.getElementById('locationClientSelect');
-  const currentClientName = contacts.find(c => c.id == loc.clientId)?.name || 'Geen';
-  const newClient = prompt('Nieuwe opdrachtgever (ID of naam, of leeg laten voor geen):', currentClientName);
-  if(newClient !== null) {
-    const foundClient = contacts.find(c => c.name?.toLowerCase().includes(newClient.toLowerCase()) || c.company?.toLowerCase().includes(newClient.toLowerCase()));
-    if(foundClient) {
-      userDefinedLocations[idx].clientId = foundClient.id;
-      saveUserLocations();
-      showWarning(`✅ Opdrachtgever bijgewerkt naar ${getContactDisplayName(foundClient)}`);
-    } else if(newClient === '' || newClient.toLowerCase() === 'geen') {
-      userDefinedLocations[idx].clientId = null;
-      saveUserLocations();
-      showWarning(`✅ Opdrachtgever verwijderd`);
-    } else if(newClient !== currentClientName) {
-      showWarning('❌ Opdrachtgever niet gevonden. Gebruik de exacte naam uit contacten.');
-    }
-  }
-  
-  const newRadius = prompt('Nieuwe straal in meters:', loc.radius);
-  if(newRadius && !isNaN(parseFloat(newRadius))) {
-    userDefinedLocations[idx].radius = parseFloat(newRadius);
-    saveUserLocations();
-    showWarning(`✅ Straal bijgewerkt naar ${newRadius} meter`);
-  }
+  saveUserLocations();
+  closeEditModal();
+  showWarning('✅ Locatie bijgewerkt');
+}
+
+function closeEditModal() {
+  document.getElementById('editLocationModal').style.display = 'none';
+  editIndex = null;
 }
 
 function deleteLocation(idx) {
@@ -347,27 +340,11 @@ saveNewLocationBtn.onclick = () => {
   const name = document.getElementById('newLocationName').value.trim();
   const clientId = document.getElementById('locationClientSelect').value;
   const radius = parseFloat(document.getElementById('newLocationRadius').value) || 500;
-  let lat, lng;
-  
-  if(currentLocationType === 'coords') {
-    const coordsStr = newLocationCoords.value.trim();
-    const coords = parseCoords(coordsStr);
-    if(!coords) { showWarning('❌ Ongeldige coördinaten. Gebruik formaat: 52.123456, 4.123456'); return; }
-    lat = coords.lat;
-    lng = coords.lng;
-  } else {
-    const coordsStr = newLocationCoords.value.trim();
-    const coords = parseCoords(coordsStr);
-    if(!coords) { showWarning('❌ Geen geldige coördinaten gevonden. Gebruik "Zoek coördinaten" eerst.'); return; }
-    lat = coords.lat;
-    lng = coords.lng;
-  }
-  
+  const coordsStr = newLocationCoords.value.trim();
+  const coords = parseCoords(coordsStr);
+  if(!coords) { showWarning('❌ Ongeldige coördinaten. Gebruik formaat: 52.123456, 4.123456'); return; }
   if(!name) { showWarning('❌ Vul een naam in'); return; }
-  if(isNaN(lat)) { showWarning('❌ Vul een geldige breedtegraad in'); return; }
-  if(isNaN(lng)) { showWarning('❌ Vul een geldige lengtegraad in'); return; }
-  
-  userDefinedLocations.push({ id: Date.now(), name, lat, lng, radius, clientId: clientId || null });
+  userDefinedLocations.push({ id: Date.now(), name, lat: coords.lat, lng: coords.lng, radius, clientId: clientId || null });
   saveUserLocations();
   addLocationForm.style.display = 'none';
   showAddLocationFormBtn.style.display = 'block';
@@ -379,6 +356,8 @@ saveNewLocationBtn.onclick = () => {
 };
 
 document.getElementById('applyFilterBtn').onclick = applyFilter;
+document.getElementById('saveEditLocationBtn').onclick = saveEditLocation;
+document.getElementById('cancelEditLocationBtn').onclick = closeEditModal;
 
 initMap();
 loadUserLocations();

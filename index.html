@@ -47,9 +47,9 @@
 <div class="menu-overlay" id="menuOverlay"></div>
 
 <div class="side-menu" id="sideMenu">
-  <div class="menu-header"><h2>🐑 Schapenwerk</h2><p>Uren & Kilometervergoeding</p></div>
+  <div class="menu-header"><h2>🐑 Schapenwerk</h2></div>
   <div class="menu-items" id="menuItemsContainer"></div>
-  <div class="menu-footer"><span id="versionFooter">v5.0</span></div>
+  <div class="menu-footer"><span id="versionFooter">v5.1</span></div>
 </div>
 
 <main id="mainContent">
@@ -59,6 +59,40 @@
 </main>
 
 <script>
+// ========== BACKGROUND TIMER SUPPORT ==========
+// Zorg dat de pagina niet in slaap valt en timers blijven lopen
+let wakeLock = null;
+
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      console.log('Wake Lock verkregen - scherm blijft aan');
+    }
+  } catch(e) { console.log('Wake Lock niet beschikbaar:', e); }
+}
+
+function releaseWakeLock() {
+  if(wakeLock) {
+    wakeLock.release().then(() => { wakeLock = null; });
+  }
+}
+
+// Vraag wake lock aan als er een timer actief is
+setInterval(() => {
+  const werkState = localStorage.getItem('werkState');
+  if(werkState) {
+    try {
+      const state = JSON.parse(werkState);
+      if(state.travelToRunning || state.workRunning || state.travelBackRunning) {
+        if(!wakeLock) requestWakeLock();
+      } else {
+        if(wakeLock) releaseWakeLock();
+      }
+    } catch(e) {}
+  }
+}, 5000);
+
 // ========== MENU ITEMS ==========
 const allMenuItems = [
   { id: "werkdag", name: "Werkdag", icon: "🐑", featureKey: "toggleWerkdag" },
@@ -105,7 +139,6 @@ function renderMenu() {
   });
 }
 
-// Luister naar berichten van iframe om menu te verversen
 window.addEventListener('message', (event) => {
   if(event.data && event.data.type === 'refreshMenu') {
     renderMenu();
@@ -219,7 +252,7 @@ function loadPage(pageId) {
 const lastPage = localStorage.getItem('lastPage') || 'werkdag';
 loadPage(lastPage);
 renderMenu();
-document.getElementById('versionFooter').innerHTML = 'v5.0<br><span style="font-size:9px;">Factuur verbeterd</span>';
+document.getElementById('versionFooter').innerHTML = 'v5.1<br><span style="font-size:9px;">Achtergrond timers</span>';
 </script>
 </body>
 </html>

@@ -92,7 +92,7 @@
 
 <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
 <script>
-// ========== VARIABELEN ==========
+// ========== TIMER FUNCTIES MET ACHTERGROND SUPPORT ==========
 let HOURLY_RATE = 25.00;
 let KM_RATE = 0.21;
 let travelToSeconds = 0, travelToRunning = false, travelToStartTime = null;
@@ -107,10 +107,72 @@ let sessionPhotos = [];
 let routePoints = [];
 let currentSessionSteps = 0, stepCounterActive = true, isWalking = false, lastRoutePointTime = 0, lastStepTime = 0;
 let contacts = [];
-let lastValidPoint = null;
-let pointBuffer = []; // Bewaar laatste 3 punten voor filter
 
-// ========== HELPER FUNCTIES ==========
+// Timer update functie
+function updateTimerFromStorage() {
+  const s = localStorage.getItem('werkState');
+  if(s) try {
+    const d = JSON.parse(s);
+    travelToSeconds = d.travelToSeconds || 0;
+    travelToRunning = d.travelToRunning || false;
+    travelToStartTime = d.travelToStartTime;
+    workSeconds = d.workSeconds || 0;
+    workRunning = d.workRunning || false;
+    workStartTime = d.workStartTime;
+    travelBackSeconds = d.travelBackSeconds || 0;
+    travelBackRunning = d.travelBackRunning || false;
+    travelBackStartTime = d.travelBackStartTime;
+    startWorkdayTime = d.startWorkdayTime;
+    
+    // Herstart timers als ze actief waren
+    if(travelToRunning && !travelToInterval) {
+      startTravelToFromBackground();
+    }
+    if(workRunning && !workInterval) {
+      startWorkFromBackground();
+    }
+    if(travelBackRunning && !travelBackInterval) {
+      startTravelBackFromBackground();
+    }
+    updateDisplays();
+    updateButtons();
+  } catch(e) {}
+}
+
+function startTravelToFromBackground() {
+  if(travelToInterval) clearInterval(travelToInterval);
+  travelToInterval = setInterval(() => {
+    if(travelToRunning) {
+      travelToSeconds++;
+      updateDisplays();
+      saveWorkState();
+    }
+  }, 1000);
+}
+function startWorkFromBackground() {
+  if(workInterval) clearInterval(workInterval);
+  workInterval = setInterval(() => {
+    if(workRunning) {
+      workSeconds++;
+      updateDisplays();
+      saveWorkState();
+    }
+  }, 1000);
+}
+function startTravelBackFromBackground() {
+  if(travelBackInterval) clearInterval(travelBackInterval);
+  travelBackInterval = setInterval(() => {
+    if(travelBackRunning) {
+      travelBackSeconds++;
+      updateDisplays();
+      saveWorkState();
+    }
+  }, 1000);
+}
+
+// Controleer elke 5 seconden of timers moeten draaien
+setInterval(updateTimerFromStorage, 2000);
+
 function formatTime(s){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`}
 function formatTimestamp(d){if(!d)return'—';return new Date(d).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}
 function formatDateToDutch(d){return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`}
@@ -122,72 +184,24 @@ function updateDisplays(){
 function getDistanceBetweenCoords(l1,ln1,l2,ln2){const R=6371,dLat=(l2-l1)*Math.PI/180,dLon=(ln2-ln1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(l1*Math.PI/180)*Math.cos(l2*Math.PI/180)*Math.sin(dLon/2)**2,c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));return R*c}
 function anyTimerActive(){return travelToRunning||workRunning||travelBackRunning}
 
-// ========== VERBETERDE GPS FILTER FUNCTIE ==========
-function isValidPoint(prevPoint, currentPoint, nextPoint, isDriving) {
-  if(!prevPoint || !currentPoint) return true; // Eerste punt altijd toevoegen
-  
-  const distToPrev = getDistanceBetweenCoords(prevPoint.lat, prevPoint.lng, currentPoint.lat, currentPoint.lng) * 1000; // in meters
-  
-  // Rijden: max 200 meter in 10 seconden (72 km/u) is acceptabel
-  // Lopen: max 20 meter in 10 seconden (7.2 km/u) is acceptabel
-  const maxDist = isDriving ? 200 : 20;
-  
-  if(distToPrev > maxDist) {
-    // Check met volgend punt als dat bestaat
-    if(nextPoint) {
-      const distToNext = getDistanceBetweenCoords(currentPoint.lat, currentPoint.lng, nextPoint.lat, nextPoint.lng) * 1000;
-      const distPrevToNext = getDistanceBetweenCoords(prevPoint.lat, prevPoint.lng, nextPoint.lat, nextPoint.lng) * 1000;
-      
-      // Als het huidige punt een outlier is (ver van beide buren), sla het over
-      if(distToPrev > maxDist * 1.5 && distToNext > maxDist * 1.5) {
-        console.log(`GPS outlier gedetecteerd: ${distToPrev.toFixed(1)}m van vorig, ${distToNext.toFixed(1)}m van volgend`);
-        return false;
-      }
-    } else {
-      // Laatste punt: alleen check met vorige
-      if(distToPrev > maxDist * 2) {
-        console.log(`GPS outlier gedetecteerd (laatste punt): ${distToPrev.toFixed(1)}m van vorig`);
-        return false;
-      }
-    }
-  }
-  
-  return true;
-}
-
-// ========== LOCATIE NAAM FUNCTIE ==========
 async function getDetailedLocationName(lat, lng) {
   const userDefinedLocations = JSON.parse(localStorage.getItem('userDefinedLocations') || '[]');
   for (const loc of userDefinedLocations) {
     const distance = getDistanceBetweenCoords(lat, lng, loc.lat, loc.lng);
-    if (distance * 1000 <= loc.radius) {
-      return loc.name;
-    }
+    if (distance * 1000 <= loc.radius) return loc.name;
   }
-  
   return new Promise((resolve) => {
-    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`)
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18`)
       .then(r => r.json()).then(data => {
         const road = data.address?.road;
-        const houseNumber = data.address?.house_number;
         const town = data.address?.town || data.address?.city || data.address?.village;
-        let result = '';
-        if(road) {
-          result = houseNumber ? `${road} ${houseNumber}` : road;
-        } else if(town) {
-          result = town;
-        } else {
-          result = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-        }
-        if(town && road && !result.includes(town)) {
-          result = `${result}, ${town}`;
-        }
+        let result = road || town || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        if(town && road) result = `${result}, ${town}`;
         resolve(result);
       }).catch(() => resolve(`${lat.toFixed(5)}, ${lng.toFixed(5)}`));
   });
 }
 
-// ========== TIMER FUNCTIES ==========
 function startTravelTo(){if(workRunning)stopWork();if(travelBackRunning)stopTravelBack();if(!startWorkdayTime)startWorkdayTime=new Date().toISOString();travelToRunning=true;travelToStartTime=new Date().toISOString();if(travelToInterval)clearInterval(travelToInterval);travelToInterval=setInterval(()=>{if(travelToRunning){travelToSeconds++;updateDisplays();saveWorkState()}},1000);updateButtons();saveWorkState()}
 function stopTravelTo(){travelToRunning=false;if(travelToInterval)clearInterval(travelToInterval);travelToInterval=null;updateButtons();saveWorkState()}
 function startWork(){if(travelToRunning)stopTravelTo();if(travelBackRunning)stopTravelBack();if(!startWorkdayTime)startWorkdayTime=new Date().toISOString();workRunning=true;workStartTime=new Date().toISOString();if(workInterval)clearInterval(workInterval);workInterval=setInterval(()=>{if(workRunning){workSeconds++;updateDisplays();saveWorkState()}},1000);updateButtons();saveWorkState()}
@@ -203,7 +217,7 @@ document.getElementById('travelToBtn').onclick=()=>travelToRunning?stopTravelTo(
 document.getElementById('workBtn').onclick=()=>workRunning?stopWork():startWork();
 document.getElementById('travelBackBtn').onclick=()=>travelBackRunning?stopTravelBack():startTravelBack();
 
-// ========== STAPPENTELLER ==========
+// Stappenteller
 if (window.DeviceMotionEvent) {
   window.addEventListener('devicemotion', function(e){
     if(!stepCounterActive)return;
@@ -225,79 +239,38 @@ if (window.DeviceMotionEvent) {
   });
 }
 
-// ========== GPS FUNCTIES MET VERBETERDE FILTER ==========
+// GPS
 function processGpsPosition(p){
   if(!document.getElementById('trackingToggle')?.checked)return;
   if(gpsPaused)return;
-  const now=Date.now();
-  const newPos={lat:p.coords.latitude,lng:p.coords.longitude};
-  const speed=p.coords.speed?p.coords.speed*3.6:0;
-  const isDriving = speed > 5; // Sneller dan 5 km/u = rijden
-  
+  const now=Date.now(),np={lat:p.coords.latitude,lng:p.coords.longitude},sp=p.coords.speed?p.coords.speed*3.6:0;
   if(lastGpsPosition){
-    const dist=Math.sqrt(Math.pow(newPos.lat-lastGpsPosition.lat,2)+Math.pow(newPos.lng-lastGpsPosition.lng,2))*111;
+    const dist=Math.sqrt(Math.pow(np.lat-lastGpsPosition.lat,2)+Math.pow(np.lng-lastGpsPosition.lng,2))*111;
     if(dist<0.02){
       totalGpsDistance+=dist;
-      if(isDriving||!isWalking) totalDrivingDistance+=dist;
-      
-      // Elke 10 seconden een punt toevoegen
+      if(sp>5||!isWalking)totalDrivingDistance+=dist;
       if(now-lastRoutePointTime>=10000){
-        // Voeg punt toe aan buffer
-        pointBuffer.push({...newPos, isDriving, speed, time: now});
-        // Houd alleen laatste 3 punten
-        if(pointBuffer.length > 3) pointBuffer.shift();
-        
-        // Check of het punt geldig is
-        let isValid = true;
-        if(pointBuffer.length >= 2) {
-          const prevPoint = pointBuffer[pointBuffer.length-2];
-          const nextPoint = pointBuffer.length >= 3 ? pointBuffer[pointBuffer.length-3] : null;
-          isValid = isValidPoint(prevPoint, newPos, nextPoint, isDriving);
-        }
-        
-        if(isValid) {
-          routePoints.push({lat:newPos.lat,lng:newPos.lng,type:isDriving?'driving':'walking',time:now,speed:speed});
-          lastRoutePointTime=now;
-          saveWorkState();
-        } else {
-          console.log('Punt overgeslagen door filter');
-        }
+        routePoints.push({lat:np.lat,lng:np.lng,type:isWalking?'walking':'driving',time:now});
+        lastRoutePointTime=now;
+        saveWorkState();
       }
     }
   }
-  lastGpsPosition=newPos;
+  lastGpsPosition=np;
 }
-
 function startGeoLocation(){if(geoWatchId)return;if(!navigator.geolocation){document.getElementById('gpsStatusMsg').innerText='❌ GPS niet ondersteund';return}document.getElementById('gpsStatusMsg').innerText='📍 GPS actief';geoWatchId=navigator.geolocation.watchPosition(processGpsPosition,err=>{document.getElementById('gpsStatusMsg').innerText='❌ GPS fout'},{enableHighAccuracy:true,maximumAge:5000,timeout:15000})}
 function stopGeoLocation(){if(geoWatchId){navigator.geolocation.clearWatch(geoWatchId);geoWatchId=null}}
 document.getElementById('trackingToggle').onchange=e=>{if(e.target.checked){startGeoLocation();document.getElementById('gpsControls').style.display='flex'}else{stopGeoLocation();document.getElementById('gpsControls').style.display='none'}};
 document.getElementById('pauseGpsBtn').onclick=()=>{gpsPaused=true;document.getElementById('pauseGpsBtn').style.display='none';document.getElementById('resumeGpsBtn').style.display='block'};
 document.getElementById('resumeGpsBtn').onclick=()=>{gpsPaused=false;document.getElementById('pauseGpsBtn').style.display='block';document.getElementById('resumeGpsBtn').style.display='none'};
 
-// ========== STOP TOEVOEGEN ==========
 document.getElementById('addLocationBtn').onclick=async()=>{
   if(lastGpsPosition){
     const locName = await getDetailedLocationName(lastGpsPosition.lat, lastGpsPosition.lng);
     const startOdo = parseFloat(document.getElementById('startOdo').value) || 0;
-    const newStop = {
-      location: locName,
-      startTime: new Date(),
-      endTime: new Date(),
-      startOdo: startOdo + totalGpsDistance,
-      endOdo: startOdo + totalGpsDistance,
-      lat: lastGpsPosition.lat,
-      lng: lastGpsPosition.lng,
-      isWalking: isWalking
-    };
-    stops.push(newStop);
-    renderStopsList();
-    saveWorkState();
-    
-    if(travelToRunning && !workRunning && !travelBackRunning){
-      stopTravelTo();
-      startWork();
-      showWarning('📍 Stop geregistreerd! Automatisch overgeschakeld naar werktijd.');
-    }
+    stops.push({location:locName,startTime:new Date(),endTime:new Date(),startOdo:startOdo+totalGpsDistance,endOdo:startOdo+totalGpsDistance,lat:lastGpsPosition.lat,lng:lastGpsPosition.lng,isWalking:isWalking});
+    renderStopsList();saveWorkState();
+    if(travelToRunning && !workRunning && !travelBackRunning){stopTravelTo();startWork();showWarning('📍 Stop geregistreerd! Automatisch overgeschakeld naar werktijd.');}
   }
 };
 
@@ -305,35 +278,21 @@ function renderStopsList(){
   const c=document.getElementById('autoStopsContainer');
   if(!c)return;
   if(!stops.length){c.innerHTML='<div class="card" style="padding:12px;">📍 Nog geen stops</div>';return}
-  c.innerHTML=stops.map((s,i)=>`
-    <div class="stop-item" style="${s.isWalking?'border-left:3px solid #ef4444;':''}">
-      <div><strong>${s.isWalking?'🚶‍♂️':'📍'} ${s.location}</strong></div>
-      <div style="font-size:0.7rem">🕒 ${formatTimestamp(s.startTime)} - ${formatTimestamp(s.endTime)}</div>
-      ${s.lat ? `<div style="font-size:0.6rem; color:#64748b;">📌 ${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</div>` : ''}
-      <button onclick="removeStop(${i})" class="btn-small" style="margin-top:8px; background:#ef4444;">🗑️ Verwijder</button>
-    </div>
-  `).join('');
+  c.innerHTML=stops.map((s,i)=>`<div class="stop-item" style="${s.isWalking?'border-left:3px solid #ef4444;':''}"><div><strong>${s.isWalking?'🚶‍♂️':'📍'} ${s.location}</strong></div><div style="font-size:0.7rem">🕒 ${formatTimestamp(s.startTime)} - ${formatTimestamp(s.endTime)}</div>${s.lat?`<div style="font-size:0.6rem; color:#64748b;">📌 ${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</div>`:''}<button onclick="removeStop(${i})" class="btn-small" style="margin-top:8px; background:#ef4444;">🗑️ Verwijder</button></div>`).join('');
 }
 window.removeStop=i=>{stops.splice(i,1);renderStopsList();saveWorkState()};
 
-// ========== FOTO'S ==========
 function renderPhotoList(){
   const c=document.getElementById('photoPreview');
   if(!c)return;
   if(!sessionPhotos.length){c.innerHTML='';return}
-  c.innerHTML=sessionPhotos.map((p,i)=>`
-    <div class="photo-thumb">
-      <img src="${p.dataUrl}" onclick="window.open('${p.dataUrl}')">
-      <div class="photo-delete" onclick="removePhoto(${i})">✕</div>
-    </div>
-  `).join('');
+  c.innerHTML=sessionPhotos.map((p,i)=>`<div class="photo-thumb"><img src="${p.dataUrl}" onclick="window.open('${p.dataUrl}')"><div class="photo-delete" onclick="removePhoto(${i})">✕</div></div>`).join('');
 }
 window.removePhoto=i=>{sessionPhotos.splice(i,1);renderPhotoList();saveWorkState()};
 function addPhoto(d){sessionPhotos.push({dataUrl:d,timestamp:new Date().toISOString()});renderPhotoList();saveWorkState()}
 document.getElementById('takePhotoBtn').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='image/*';i.capture='environment';i.onchange=e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>addPhoto(ev.target.result);r.readAsDataURL(f)}};i.click()};
 document.getElementById('uploadPhotoBtn').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='image/*';i.onchange=e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>addPhoto(ev.target.result);r.readAsDataURL(f)}};i.click()};
 
-// ========== STATE OPSLAAN ==========
 function saveWorkState(){
   localStorage.setItem('werkState',JSON.stringify({
     travelToSeconds,travelToRunning,travelToStartTime,workSeconds,workRunning,workStartTime,
@@ -344,7 +303,8 @@ function saveWorkState(){
     routePoints,currentSessionSteps
   }));
 }
-setInterval(saveWorkState,2000);
+setInterval(saveWorkState,1000);
+
 function loadWorkState(){
   const s=localStorage.getItem('werkState');
   if(s)try{
@@ -360,10 +320,13 @@ function loadWorkState(){
     stops=d.stops||[];totalGpsDistance=d.totalGpsDistance||0;totalDrivingDistance=d.totalDrivingDistance||0;
     sessionPhotos=d.sessionPhotos||[];routePoints=d.routePoints||[];currentSessionSteps=d.currentSessionSteps||0;
     updateDisplays();updateButtons();renderStopsList();renderPhotoList();
+    
+    if(travelToRunning && !travelToInterval) startTravelToFromBackground();
+    if(workRunning && !workInterval) startWorkFromBackground();
+    if(travelBackRunning && !travelBackInterval) startTravelBackFromBackground();
   }catch(e){}
 }
 
-// ========== EINDE WERKDAG ==========
 function endWorkday(){
   const totalKm=totalGpsDistance;
   const session={
@@ -385,11 +348,9 @@ function endWorkday(){
   const sessions=JSON.parse(localStorage.getItem('workSessionsList')||'[]');
   sessions.push(session);
   localStorage.setItem('workSessionsList',JSON.stringify(sessions));
-  
   let stepStats=JSON.parse(localStorage.getItem('stepStats')||'[]');
   stepStats.push({date:new Date().toISOString(),steps:currentSessionSteps,sessionId:session.id});
   localStorage.setItem('stepStats',JSON.stringify(stepStats));
-  
   travelToSeconds=workSeconds=travelBackSeconds=0;travelToRunning=workRunning=travelBackRunning=false;startWorkdayTime=null;
   stops=[];sessionPhotos=[];totalGpsDistance=0;totalDrivingDistance=0;routePoints=[];currentSessionSteps=0;
   if(document.getElementById('endOdo'))document.getElementById('endOdo').value='';
@@ -402,7 +363,6 @@ function endWorkday(){
 }
 document.getElementById('endWorkdayBtn').onclick=endWorkday;
 
-// ========== CONTACTEN & SUGGESTIES ==========
 function loadContacts(){const s=localStorage.getItem('contacts');if(s)contacts=JSON.parse(s);}
 function getContactDisplayName(c){return c.company?.trim()||c.name||'Onbekend'}
 loadContacts();
@@ -414,16 +374,11 @@ document.getElementById('clientName').addEventListener('input',()=>{
   if(f.length){
     s.innerHTML=f.map(c=>`<div class="client-suggestion-item" data-name="${getContactDisplayName(c)}">${getContactDisplayName(c)}</div>`).join('');
     s.style.display='block';
-    document.querySelectorAll('.client-suggestion-item').forEach(el=>el.onclick=()=>{
-      document.getElementById('clientName').value=el.dataset.name;
-      s.style.display='none';
-      saveWorkState();
-    });
+    document.querySelectorAll('.client-suggestion-item').forEach(el=>el.onclick=()=>{document.getElementById('clientName').value=el.dataset.name;s.style.display='none';saveWorkState();});
   }else s.style.display='none';
 });
 document.addEventListener('click',e=>{if(!document.getElementById('clientSuggestions').contains(e.target)&&e.target!==document.getElementById('clientName'))document.getElementById('clientSuggestions').style.display='none'});
 
-// ========== RATES ==========
 function updateRateDisplays(){
   const h=document.getElementById('hourlyRateInput'),k=document.getElementById('kmRateInput');
   if(h){h.value=HOURLY_RATE.toFixed(2);h.onchange=()=>{HOURLY_RATE=parseFloat(h.value);localStorage.setItem('hourlyRate',HOURLY_RATE)}}
@@ -432,7 +387,6 @@ function updateRateDisplays(){
 function loadRates(){const h=localStorage.getItem('hourlyRate');if(h)HOURLY_RATE=parseFloat(h);const k=localStorage.getItem('kmRate');if(k)KM_RATE=parseFloat(k);updateRateDisplays()}
 loadRates();
 
-// ========== TOGGLE STATES ==========
 function loadToggleStates(){
   const g=localStorage.getItem('gpsToggleState'),s=localStorage.getItem('stepToggleState');
   if(g==='false')document.getElementById('trackingToggle').checked=false;
@@ -443,16 +397,12 @@ function loadToggleStates(){
 document.getElementById('stepCounterToggle').onchange=e=>{localStorage.setItem('stepToggleState',e.target.checked);stepCounterActive=e.target.checked;document.getElementById('stepCounterCard').style.display=e.target.checked?'block':'none'};
 document.getElementById('trackingToggle').onchange=e=>{localStorage.setItem('gpsToggleState',e.target.checked)};
 
-// ========== WARNING FUNCTIE ==========
 function showWarning(msg){
   if(window.parent && window.parent.postMessage){
     window.parent.postMessage({type:'warning',message:msg},'*');
-  }else{
-    alert(msg);
-  }
+  }else{alert(msg);}
 }
 
-// ========== INIT ==========
 loadWorkState();
 loadToggleStates();
 </script>
