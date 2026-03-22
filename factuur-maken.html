@@ -39,6 +39,8 @@
     .filename-input input { flex: 2; margin-top: 0; }
     .invoice-footer-note { margin-top: 16px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 0.7rem; color: #64748b; text-align: center; }
     .no-contacts-warning { background: #fef3c7; padding: 12px; border-radius: 16px; margin-top: 12px; font-size: 0.8rem; color: #92400e; display: none; }
+    .contact-count { font-size: 0.7rem; color: #64748b; margin-top: 5px; }
+    .secret-mode-buttons { display: flex; gap: 10px; margin-top: 15px; }
   </style>
 </head>
 <body>
@@ -52,6 +54,7 @@
   <div id="noContactsWarning" class="no-contacts-warning">
     ⚠️ Geen opdrachtgevers gevonden. Ga eerst naar "Contacten" om opdrachtgevers toe te voegen.
   </div>
+  <div id="contactCount" class="contact-count"></div>
   <label>Jaar</label>
   <input type="number" id="invoiceYearInput" value="2026">
   <label>Maand</label>
@@ -141,6 +144,11 @@
     <h3>📄 Stap 3: Factuur voorbeeld</h3>
     <div id="invoicePreviewContainer" class="invoice-preview"></div>
     <div class="filename-input"><label>Bestandsnaam:</label><input type="text" id="invoiceFilename"><button id="saveFilenameBtn" class="btn-small">💾 Opslaan</button></div>
+    <div class="secret-mode-buttons" id="secretModeButtons" style="display: none;">
+      <button id="downloadNormalBtn" class="btn-success">📥 Download normale factuur</button>
+      <button id="downloadSecretBtn" class="btn-warning">🔒 Download uitgeklede factuur</button>
+      <button id="downloadExplanationBtn" class="btn-secondary">📋 Download toelichting</button>
+    </div>
     <div class="invoice-actions">
       <button id="downloadOnlyBtn" class="btn-success">📥 Alleen downloaden</button>
       <button id="sendOnlyBtn" class="btn-warning">📧 Alleen versturen</button>
@@ -158,11 +166,15 @@ let currentInvoiceWorkdays = [];
 let extraLines = [];
 let companyLogo = null;
 let currentGeneratedHTML = '';
+let currentNormalHTML = '';
+let currentSecretHTML = '';
+let currentExplanationHTML = '';
 let currentInvoiceNumber = '';
 let currentTotal = 0;
 let currentYear = 2026;
 let currentMonth = 0;
 let currentClient = null;
+let currentSecretModeActive = false;
 
 // ========== HULPFUNCTIES ==========
 function showWarning(msg){ 
@@ -196,75 +208,66 @@ function loadRates(){
 }
 loadRates();
 
-// ========== CONTACTEN LADEN - BELANGRIJKSTE FUNCTIE ==========
-function loadContacts(){ 
-  const s = localStorage.getItem('contacts');
-  console.log('Contacten uit localStorage:', s);
-  
-  if(s) {
+// ========== CONTACTEN LADEN ==========
+function loadContacts() { 
+  const raw = localStorage.getItem('contacts');
+  if(raw) {
     try {
-      contacts = JSON.parse(s);
-      console.log('Geladen contacten:', contacts.length);
+      contacts = JSON.parse(raw);
     } catch(e) {
-      console.error('Fout bij parsen contacten:', e);
       contacts = [];
     }
   } else {
-    console.log('Geen contacten gevonden in localStorage');
     contacts = [];
   }
+  updateClientSelect();
   
-  updateInvoiceClientSelect();
-}
-
-function updateInvoiceClientSelect() {
-  const sel = document.getElementById('invoiceClientSelect');
-  const warningDiv = document.getElementById('noContactsWarning');
-  
-  if(!sel) return;
-  
-  // Leeg de select eerst
-  sel.innerHTML = '<option value="">-- Selecteer opdrachtgever --</option>';
-  
-  if(!contacts || contacts.length === 0) {
-    console.log('Geen contacten om te tonen');
-    if(warningDiv) warningDiv.style.display = 'block';
-    return;
+  const countDiv = document.getElementById('contactCount');
+  if(countDiv) {
+    if(contacts.length === 0) {
+      countDiv.innerHTML = '📭 Geen opdrachtgevers gevonden. Ga naar "Contacten" om ze toe te voegen.';
+      countDiv.style.color = '#f59e0b';
+    } else {
+      countDiv.innerHTML = `✅ ${contacts.length} opdrachtgever(s) gevonden`;
+      countDiv.style.color = '#10b981';
+    }
   }
   
-  if(warningDiv) warningDiv.style.display = 'none';
-  console.log(`Contacten tonen: ${contacts.length} stuks`);
-  
-  contacts.forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c.id;
-    opt.textContent = getContactDisplayName(c);
-    sel.appendChild(opt);
-  });
+  const warningDiv = document.getElementById('noContactsWarning');
+  if(warningDiv) {
+    warningDiv.style.display = contacts.length === 0 ? 'block' : 'none';
+  }
 }
 
-// Vernieuw contacten handmatig
-function refreshContacts() {
-  loadContacts();
-  showWarning(`🔄 Contacten vernieuwd: ${contacts.length} opdrachtgevers gevonden`);
+function updateClientSelect() {
+  const select = document.getElementById('invoiceClientSelect');
+  if(!select) return;
+  const currentValue = select.value;
+  select.innerHTML = '<option value="">-- Selecteer opdrachtgever --</option>';
+  if(!contacts || contacts.length === 0) return;
+  contacts.forEach(c => {
+    const option = document.createElement('option');
+    option.value = c.id;
+    option.textContent = getContactDisplayName(c);
+    select.appendChild(option);
+  });
+  if(currentValue && currentValue !== '') {
+    const exists = Array.from(select.options).some(opt => opt.value == currentValue);
+    if(exists) select.value = currentValue;
+  }
 }
 
 // ========== WERKDAGEN LADEN ==========
 function loadInvoiceWorkdays() {
   const clientId = parseInt(document.getElementById('invoiceClientSelect').value);
-  console.log('Geselecteerde clientId:', clientId);
-  console.log('Beschikbare contacten:', contacts);
-  
   if(!clientId || isNaN(clientId)) { 
     alert('Selecteer een opdrachtgever'); 
     return; 
   }
   
   currentClient = contacts.find(c => c.id === clientId);
-  console.log('Gevonden client:', currentClient);
-  
   if(!currentClient) {
-    alert('Opdrachtgever niet gevonden. Probeer op "Vernieuw contacten"');
+    alert('Opdrachtgever niet gevonden. Klik op "Vernieuw contacten"');
     return;
   }
   
@@ -272,29 +275,20 @@ function loadInvoiceWorkdays() {
   currentMonth = parseInt(document.getElementById('invoiceMonthSelect').value);
   
   const sessions = JSON.parse(localStorage.getItem('workSessionsList')||'[]');
-  console.log('Totaal werkdagen:', sessions.length);
-  
   currentInvoiceWorkdays = sessions.filter(s => {
     if(!s.startWorkdayTime) return false;
     const d = new Date(s.startWorkdayTime);
     if(isNaN(d.getTime())) return false;
-    
     const sessionClient = (s.client || '').toLowerCase();
     const clientName = (currentClient.name || '').toLowerCase();
     const clientCompany = (currentClient.company || '').toLowerCase();
-    
-    const match = d.getMonth() === currentMonth && 
+    return d.getMonth() === currentMonth && 
            d.getFullYear() === currentYear && 
            (sessionClient.includes(clientName) || sessionClient.includes(clientCompany));
-    
-    if(match) console.log('Gevonden werkdag:', s.client, d);
-    return match;
   });
   
-  console.log('Gefilterde werkdagen:', currentInvoiceWorkdays.length);
-  
   if(currentInvoiceWorkdays.length === 0) {
-    alert('Geen werkdagen gevonden voor deze opdrachtgever in de geselecteerde periode.\n\nControleer:\n- Of er werkdagen zijn in deze maand\n- Of de opdrachtgever correct is ingevuld bij de werkdagen');
+    alert('Geen werkdagen gevonden voor deze opdrachtgever in de geselecteerde periode.');
     document.getElementById('invoiceEditor').innerHTML = '<p style="color:#dc2626;">⚠️ Geen werkdagen gevonden</p>';
     document.getElementById('step2').style.display = 'block';
     document.getElementById('step3').style.display = 'none';
@@ -307,7 +301,6 @@ function loadInvoiceWorkdays() {
   showWarning(`✅ ${currentInvoiceWorkdays.length} werkdagen geladen`);
 }
 
-// ========== EDITOR RENDEREN ==========
 function renderInvoiceEditor() {
   const container = document.getElementById('invoiceEditor');
   if(!currentInvoiceWorkdays.length) { 
@@ -349,7 +342,6 @@ function renderExtraLines() {
     </div>
   `).join('');
   
-  // Voeg event listeners toe voor de inputs
   setTimeout(() => {
     document.querySelectorAll('.extra-date').forEach((el, i) => {
       el.addEventListener('change', (e) => { if(extraLines[i]) extraLines[i].date = e.target.value; });
@@ -382,6 +374,7 @@ function generatePreview() {
 
   const vat = parseFloat(document.getElementById('vatPercentage').value);
   const secretMode = document.getElementById('secretModeToggle').checked;
+  currentSecretModeActive = secretMode;
 
   const headerFont = document.getElementById('fontHeaderSelect').value;
   const headerSize = document.getElementById('fontHeaderSize').value;
@@ -393,7 +386,6 @@ function generatePreview() {
   const headerText = document.getElementById('invoiceHeader').value;
   const footerText = document.getElementById('invoiceFooter').value;
 
-  // Bedrijfsgegevens ophalen
   const company = {
     name: localStorage.getItem('companyName') || '',
     contactName: localStorage.getItem('contactName') || '',
@@ -405,7 +397,7 @@ function generatePreview() {
   companyLogo = localStorage.getItem('companyLogo');
   const logoHtml = companyLogo ? `<img src="${companyLogo}" style="max-height:80px; margin-bottom:15px;">` : '';
 
-  // Data verzamelen van werkdagen
+  // Data verzamelen
   let totalWork = 0, totalKm = 0, totalHours = 0;
   let rows = '';
   let explanationRows = '';
@@ -426,40 +418,39 @@ function generatePreview() {
     totalHours += hours;
 
     rows += `
-       <tr>
-        <td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td>
-        <td style="border:1px solid #000; padding:8px;">${escapeHtml(desc)}</td>
-        <td style="border:1px solid #000; padding:8px; text-align:right;">${km.toFixed(1)}</td>
-        <td style="border:1px solid #000; padding:8px; text-align:right;">${hours.toFixed(2)}</td>
-        <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${workAmt.toFixed(2)}</td>
-       </tr>`;
+        <tr style="font-family:${contentFont};">
+          <td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td>
+          <td style="border:1px solid #000; padding:8px;">${escapeHtml(desc)}</td>
+          <td style="border:1px solid #000; padding:8px; text-align:right;">${km.toFixed(1)}</td>
+          <td style="border:1px solid #000; padding:8px; text-align:right;">${hours.toFixed(2)}</td>
+          <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${workAmt.toFixed(2)}</td>
+        </tr>`;
 
     explanationRows += `
-       <tr>
-        <td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td>
-        <td style="border:1px solid #000; padding:8px;">${escapeHtml(desc)}</td>
-        <td style="border:1px solid #000; padding:8px; text-align:right;">${hours.toFixed(2)}</td>
-       </tr>`;
+        <tr style="font-family:${contentFont};">
+          <td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td>
+          <td style="border:1px solid #000; padding:8px;">${escapeHtml(desc)}</td>
+          <td style="border:1px solid #000; padding:8px; text-align:right;">${hours.toFixed(2)}</td>
+        </tr>`;
   });
 
-  // Extra regels toevoegen
   extraLines.forEach(line => {
     if(line.amount && line.amount !== 0) {
       totalWork += line.amount;
       rows += `
-         <tr>
+        <tr style="font-family:${contentFont};">
           <td style="border:1px solid #000; padding:8px;">${line.date || ''}</td>
           <td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)}</td>
           <td style="border:1px solid #000; padding:8px;">-</td>
           <td style="border:1px solid #000; padding:8px;">-</td>
           <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${line.amount.toFixed(2)}</td>
-         </tr>`;
+        </tr>`;
       explanationRows += `
-         <tr>
+        <tr style="font-family:${contentFont};">
           <td style="border:1px solid #000; padding:8px;">${line.date || ''}</td>
           <td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)}</td>
           <td style="border:1px solid #000; padding:8px;">-</td>
-         </tr>`;
+        </tr>`;
     }
   });
 
@@ -468,60 +459,62 @@ function generatePreview() {
   const btw = subtotal * (vat / 100);
   const grand = subtotal + btw;
 
-  // Factuurnummer genereren
   currentInvoiceNumber = `F${currentYear}${(currentMonth+1).toString().padStart(2,'0')}${Math.floor(Math.random() * 1000)}`;
   const invoiceDate = formatDateToDutch(new Date());
   currentTotal = grand;
 
-  // Adressen formatteren
-  const companyDisplay = `${company.name || ''}${company.contactName ? (company.name ? ' / ' : '') + company.contactName : ''}`;
-  const companyAddress = `${company.street || ''}${company.location ? (company.street ? ', ' : '') + company.location : ''}`;
-  const clientDisplay = `${currentClient.company || ''}${currentClient.name ? (currentClient.company ? ' / ' : '') + currentClient.name : ''}`;
-  const clientAddress = `${currentClient.street || ''}${currentClient.city ? (currentClient.street ? ', ' : '') + currentClient.city : ''}`;
+  // Adressen - zonder slash, meer ruimte
+  const companyDisplay = company.name || '';
+  const companyContact = company.contactName || '';
+  const companyAddressLines = [];
+  if(company.street) companyAddressLines.push(company.street);
+  if(company.location) companyAddressLines.push(company.location);
+  const companyAddress = companyAddressLines.join(', ');
+  
+  const clientDisplay = currentClient.company || '';
+  const clientContact = currentClient.name || '';
+  const clientAddressLines = [];
+  if(currentClient.street) clientAddressLines.push(currentClient.street);
+  if(currentClient.city) clientAddressLines.push(currentClient.city);
+  const clientAddress = clientAddressLines.join(', ');
 
-  // ======================
-  // NORMALE FACTUUR (Mooie layout)
-  // ======================
-  let normalInvoice = `
+  // NORMALE FACTUUR
+  currentNormalHTML = `
   <div id="invoiceToPrint" style="font-family:${contentFont}; font-size:${contentSize}px; max-width:1000px; margin:0 auto; padding:20px;">
     ${logoHtml}
-    
     ${headerText ? `<div style="font-family:${headerFont}; font-size:${headerSize}px; margin-bottom:20px; text-align:center;">${escapeHtml(headerText)}</div>` : ''}
-    
     <h1 style="font-family:${labelFont}; font-size:24px; margin-bottom:20px; color:#0077cc;">FACTUUR</h1>
-    
-    <div style="display:flex; justify-content:space-between; margin-bottom:30px; flex-wrap:wrap; gap:20px;">
+    <div style="display:flex; justify-content:space-between; margin-bottom:30px; gap:40px;">
       <div style="flex:1;">
-        <strong style="font-family:${labelFont}; font-size:${labelSize}px;">Verzender:</strong><br>
-        <strong>${escapeHtml(companyDisplay)}</strong><br>
-        ${escapeHtml(company.contactName ? company.contactName : '')}<br>
-        ${escapeHtml(companyAddress)}<br>
-        ${company.iban ? `IBAN: ${escapeHtml(company.iban)}` : ''}<br>
-        ${company.kvk ? `KvK: ${escapeHtml(company.kvk)}` : ''}
+        <div style="font-family:${labelFont}; font-weight:bold; margin-bottom:8px;">Verzender</div>
+        <div style="font-weight:bold;">${escapeHtml(companyDisplay)}</div>
+        ${companyContact ? `<div>${escapeHtml(companyContact)}</div>` : ''}
+        <div>${escapeHtml(companyAddress)}</div>
+        ${company.iban ? `<div>IBAN: ${escapeHtml(company.iban)}</div>` : ''}
+        ${company.kvk ? `<div>KvK: ${escapeHtml(company.kvk)}</div>` : ''}
       </div>
-      <div style="flex:1; text-align:right;">
-        <strong style="font-family:${labelFont}; font-size:${labelSize}px;">Ontvanger:</strong><br>
-        <strong>${escapeHtml(clientDisplay)}</strong><br>
-        ${escapeHtml(clientAddress)}<br>
-        ${currentClient.kvk ? `KvK: ${escapeHtml(currentClient.kvk)}` : ''}
+      <div style="flex:1;">
+        <div style="font-family:${labelFont}; font-weight:bold; margin-bottom:8px;">Ontvanger</div>
+        <div style="font-weight:bold;">${escapeHtml(clientDisplay)}</div>
+        ${clientContact ? `<div>${escapeHtml(clientContact)}</div>` : ''}
+        <div>${escapeHtml(clientAddress)}</div>
+        ${currentClient.kvk ? `<div>KvK: ${escapeHtml(currentClient.kvk)}</div>` : ''}
       </div>
     </div>
-
     <div style="margin-bottom:25px;">
-      <strong style="font-family:${labelFont}; font-size:${labelSize}px;">Factuurnummer:</strong> ${currentInvoiceNumber}<br>
-      <strong style="font-family:${labelFont}; font-size:${labelSize}px;">Factuurdatum:</strong> ${invoiceDate}<br>
-      <strong style="font-family:${labelFont}; font-size:${labelSize}px;">Periode:</strong> ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long', year: 'numeric' })}
+      <span style="font-family:${labelFont}; font-weight:bold;">Factuurnummer:</span> ${currentInvoiceNumber}<br>
+      <span style="font-family:${labelFont}; font-weight:bold;">Factuurdatum:</span> ${invoiceDate}<br>
+      <span style="font-family:${labelFont}; font-weight:bold;">Periode:</span> ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long', year: 'numeric' })}
     </div>
-
     <table style="width:100%; border-collapse:collapse; margin-bottom:20px;">
       <thead>
-        <tr style="background:#f1f5f9;">
-          <th style="border:1px solid #000; padding:10px; font-family:${labelFont}; font-size:${labelSize}px;">DATUM</th>
-          <th style="border:1px solid #000; padding:10px; font-family:${labelFont}; font-size:${labelSize}px;">OMSCHRIJVING</th>
-          <th style="border:1px solid #000; padding:10px; font-family:${labelFont}; font-size:${labelSize}px;">KM</th>
-          <th style="border:1px solid #000; padding:10px; font-family:${labelFont}; font-size:${labelSize}px;">UREN</th>
-          <th style="border:1px solid #000; padding:10px; font-family:${labelFont}; font-size:${labelSize}px;">BEDRAG</th>
-         </tr>
+        <tr style="background:#f1f5f9; font-family:${labelFont}; font-size:${labelSize}px;">
+          <th style="border:1px solid #000; padding:10px;">DATUM</th>
+          <th style="border:1px solid #000; padding:10px;">OMSCHRIJVING</th>
+          <th style="border:1px solid #000; padding:10px;">KM</th>
+          <th style="border:1px solid #000; padding:10px;">UREN</th>
+          <th style="border:1px solid #000; padding:10px;">BEDRAG</th>
+        </tr>
       </thead>
       <tbody>
         ${rows}
@@ -545,18 +538,13 @@ function generatePreview() {
         </tr>
       </tfoot>
     </table>
-    
     ${footerText ? `<div style="font-family:${headerFont}; font-size:${headerSize}px; margin-top:20px; padding:15px; background:#f8fafc; border-radius:12px;">${escapeHtml(footerText)}</div>` : ''}
-    
     <div class="invoice-footer-note">
       <p>Betaling graag binnen 14 dagen na factuurdatum overmaken op bovenstaand IBAN.</p>
-      <p>BTW-nummer: NL${company.kvk ? company.kvk.substring(0,9) : '000000000'}B01</p>
     </div>
   </div>`;
 
-  // ======================
-  // UITGEKLEDE FACTUUR + TOELICHTING
-  // ======================
+  // UITGEKLEDE FACTUUR
   let simpleRows = '';
   let simpleTotal = 0;
   
@@ -567,11 +555,11 @@ function generatePreview() {
     const amount = hours * rate;
     simpleTotal += amount;
     simpleRows += `
-        <tr>
-          <td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td>
-          <td style="border:1px solid #000; padding:8px;">Werkzaamheden</td>
-          <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${amount.toFixed(2)}</td>
-        </tr>`;
+      <tr>
+        <td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td>
+        <td style="border:1px solid #000; padding:8px;">Werkzaamheden</td>
+        <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${amount.toFixed(2)}</td>
+      </tr>`;
   });
   
   extraLines.forEach(line => {
@@ -588,14 +576,13 @@ function generatePreview() {
   
   const simpleGrand = simpleTotal + kmCompensation;
   
-  const simpleInvoice = `
-  <div id="secretInvoice" style="font-family:${contentFont}; font-size:${contentSize}px; max-width:800px; margin:0 auto; padding:20px;">
+  currentSecretHTML = `
+  <div style="font-family:${contentFont}; font-size:${contentSize}px; max-width:800px; margin:0 auto; padding:20px;">
     ${logoHtml}
-    <h2 style="margin-bottom:20px;">FACTUUR</h2>
+    <h2 style="font-family:${labelFont};">FACTUUR</h2>
     <p><strong>Factuurnummer:</strong> ${currentInvoiceNumber}</p>
     <p><strong>Factuurdatum:</strong> ${invoiceDate}</p>
-    <p><strong>Opdrachtgever:</strong> ${escapeHtml(clientDisplay)}</p>
-    
+    <p><strong>Opdrachtgever:</strong> ${escapeHtml(clientDisplay)}${clientContact ? ' - ' + escapeHtml(clientContact) : ''}</p>
     <table style="width:100%; border-collapse:collapse; margin:20px 0;">
       <thead>
         <tr style="background:#f1f5f9;">
@@ -612,16 +599,15 @@ function generatePreview() {
         </tr>
       </tbody>
     </table>
-    
     <p><small>Betaling binnen 14 dagen op IBAN: ${escapeHtml(company.iban)}</small></p>
   </div>`;
   
-  const explanationDoc = `
-  <div id="explanationDoc" style="font-family:${contentFont}; font-size:${contentSize}px; max-width:800px; margin:20px auto; padding:20px; border-top:2px solid #ccc;">
-    <h3>📋 Toelichting bij factuur ${currentInvoiceNumber}</h3>
-    <p><strong>Opdrachtgever:</strong> ${escapeHtml(clientDisplay)}</p>
+  // TOELICHTING
+  currentExplanationHTML = `
+  <div style="font-family:${contentFont}; font-size:${contentSize}px; max-width:800px; margin:0 auto; padding:20px;">
+    <h3 style="font-family:${labelFont};">📋 Toelichting bij factuur ${currentInvoiceNumber}</h3>
+    <p><strong>Opdrachtgever:</strong> ${escapeHtml(clientDisplay)}${clientContact ? ' - ' + escapeHtml(clientContact) : ''}</p>
     <p><strong>Periode:</strong> ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long', year: 'numeric' })}</p>
-    
     <table style="width:100%; border-collapse:collapse; margin:15px 0;">
       <thead>
         <tr style="background:#f1f5f9;">
@@ -647,7 +633,6 @@ function generatePreview() {
         }).join('')}
       </tbody>
     </table>
-    
     <p><strong>Uurtarief:</strong> € ${HOURLY_RATE.toFixed(2)}/uur</p>
     <p><strong>Kilometervergoeding:</strong> € ${KM_RATE.toFixed(2)}/km</p>
     <p><strong>Totaal gewerkte uren:</strong> ${totalHours.toFixed(2)} uur</p>
@@ -655,40 +640,88 @@ function generatePreview() {
     <p><strong>BTW percentage:</strong> ${vat}%</p>
   </div>`;
 
-  // Resultaat tonen
   const container = document.getElementById('invoicePreviewContainer');
   container.style.display = 'block';
-
+  const secretButtons = document.getElementById('secretModeButtons');
+  
   if(secretMode) {
-    currentGeneratedHTML = simpleInvoice + explanationDoc;
-    container.innerHTML = `
-      <div style="background:#fef3c7; padding:12px; border-radius:12px; margin-bottom:16px;">
-        ⚠️ <strong>Uitgeklede factuur modus</strong><br>
-        De klant ziet alleen de eenvoudige factuur. Het toelichtingsdocument is alleen voor jouw administratie.
-      </div>
-      ${simpleInvoice}
-      <hr style="margin:30px 0;">
-      ${explanationDoc}
-    `;
+    currentGeneratedHTML = currentSecretHTML;
+    container.innerHTML = currentSecretHTML;
+    if(secretButtons) secretButtons.style.display = 'flex';
+    document.getElementById('downloadOnlyBtn').style.display = 'none';
+    document.getElementById('sendOnlyBtn').style.display = 'none';
+    document.getElementById('downloadAndSendBtn').style.display = 'none';
   } else {
-    currentGeneratedHTML = normalInvoice;
-    container.innerHTML = normalInvoice;
+    currentGeneratedHTML = currentNormalHTML;
+    container.innerHTML = currentNormalHTML;
+    if(secretButtons) secretButtons.style.display = 'none';
+    document.getElementById('downloadOnlyBtn').style.display = 'block';
+    document.getElementById('sendOnlyBtn').style.display = 'block';
+    document.getElementById('downloadAndSendBtn').style.display = 'block';
   }
 
-  // Bestandsnaam instellen
   const filenameInput = document.getElementById('invoiceFilename');
   if(filenameInput && !filenameInput.value) {
-    filenameInput.value = `Factuur_${(currentClient.company || currentClient.name).replace(/[^a-z0-9]/gi, '_')}_${currentYear}-${(currentMonth+1).toString().padStart(2,'0')}`;
+    const safeName = (currentClient.company || currentClient.name || 'factuur').replace(/[^a-z0-9]/gi, '_');
+    filenameInput.value = `Factuur_${safeName}_${currentYear}-${(currentMonth+1).toString().padStart(2,'0')}`;
   }
 
   document.getElementById('step3').style.display = 'block';
   document.getElementById('step2').style.display = 'none';
-  
   showWarning('✅ Factuur gegenereerd!');
 }
 
-// ========== FACTUUR OPSLAAN ==========
-function saveInvoiceToStorage() {
+// ========== DOWNLOAD FUNCTIES VOOR GEHEIME MODUS ==========
+function downloadNormalPDF() {
+  const opt = {
+    margin: [0.5, 0.5, 0.5, 0.5],
+    filename: `Factuur_${currentInvoiceNumber}_normaal.pdf`,
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2 },
+    jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+  };
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = currentNormalHTML;
+  document.body.appendChild(tempDiv);
+  html2pdf().set(opt).from(tempDiv).save().then(() => {
+    document.body.removeChild(tempDiv);
+    saveInvoiceToStorage('normaal');
+  });
+}
+
+function downloadSecretPDF() {
+  const opt = {
+    margin: [0.5, 0.5, 0.5, 0.5],
+    filename: `Factuur_${currentInvoiceNumber}_uitgekleed.pdf`,
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2 },
+    jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+  };
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = currentSecretHTML;
+  document.body.appendChild(tempDiv);
+  html2pdf().set(opt).from(tempDiv).save().then(() => {
+    document.body.removeChild(tempDiv);
+  });
+}
+
+function downloadExplanationPDF() {
+  const opt = {
+    margin: [0.5, 0.5, 0.5, 0.5],
+    filename: `Toelichting_${currentInvoiceNumber}.pdf`,
+    image: { type: 'jpeg', quality: 0.98 },
+    html2canvas: { scale: 2 },
+    jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+  };
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = currentExplanationHTML;
+  document.body.appendChild(tempDiv);
+  html2pdf().set(opt).from(tempDiv).save().then(() => {
+    document.body.removeChild(tempDiv);
+  });
+}
+
+function saveInvoiceToStorage(type = 'normaal') {
   let invoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
   invoices.push({ 
     id: Date.now(), 
@@ -697,7 +730,7 @@ function saveInvoiceToStorage() {
     year: currentYear, 
     month: currentMonth, 
     date: new Date().toISOString(), 
-    html: currentGeneratedHTML, 
+    html: type === 'normaal' ? currentNormalHTML : currentSecretHTML,
     total: currentTotal 
   });
   localStorage.setItem('savedInvoices', JSON.stringify(invoices));
@@ -708,7 +741,6 @@ function saveInvoiceToStorage() {
 function downloadInvoiceAsPDF() {
   const element = document.getElementById('invoicePreviewContainer');
   const filename = document.getElementById('invoiceFilename').value || 'factuur';
-  
   const opt = {
     margin: [0.5, 0.5, 0.5, 0.5],
     filename: `${filename}.pdf`,
@@ -716,37 +748,57 @@ function downloadInvoiceAsPDF() {
     html2canvas: { scale: 2, letterRendering: true },
     jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
   };
-  
   html2pdf().set(opt).from(element).save();
-  saveInvoiceToStorage();
+  saveInvoiceToStorage('normaal');
   showWarning('📥 PDF gedownload en opgeslagen!');
 }
 
-// ========== EMAIL VERSTUREN ==========
+// ========== EMAIL VERSTUREN MET BIJLAGE INSTRUCTIE ==========
 function sendInvoiceByEmail() {
-  const filename = document.getElementById('invoiceFilename').value || 'factuur';
   const clientEmail = prompt('Voer het e-mailadres van de opdrachtgever in:', '');
   if(!clientEmail) return;
   
+  const filename = document.getElementById('invoiceFilename').value || 'factuur';
   const subject = encodeURIComponent(`Factuur ${currentInvoiceNumber}`);
-  const body = encodeURIComponent(`Beste,\n\nHierbij ontvang je factuur ${currentInvoiceNumber} voor de werkzaamheden in ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long', year: 'numeric' })}.\n\nHet factuurbedrag is € ${currentTotal.toFixed(2)}.\n\nMet vriendelijke groet,\n${localStorage.getItem('companyName') || ''}`);
+  const body = encodeURIComponent(
+    `Beste,\n\n` +
+    `Hierbij ontvang je factuur ${currentInvoiceNumber} voor de werkzaamheden in ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long', year: 'numeric' })}.\n\n` +
+    `Het factuurbedrag is € ${currentTotal.toFixed(2)}.\n\n` +
+    `De factuur is als PDF bijgevoegd. (Download de factuur eerst via de knop "Alleen downloaden" en voeg hem dan handmatig toe aan deze e-mail)\n\n` +
+    `Met vriendelijke groet,\n${localStorage.getItem('companyName') || ''}`
+  );
   
   window.location.href = `mailto:${clientEmail}?subject=${subject}&body=${body}`;
-  saveInvoiceToStorage();
-  showWarning('📧 E-mailclient geopend!');
+  saveInvoiceToStorage('normaal');
+  showWarning('📧 E-mailclient geopend! Download eerst de PDF en voeg deze toe aan de e-mail.');
 }
 
 // ========== DOWNLOAD & VERSTUREN ==========
 function downloadAndSend() {
   downloadInvoiceAsPDF();
   setTimeout(() => {
-    sendInvoiceByEmail();
-  }, 1000);
+    const clientEmail = prompt('Voer het e-mailadres van de opdrachtgever in om de e-mail te openen:', '');
+    if(clientEmail) {
+      const subject = encodeURIComponent(`Factuur ${currentInvoiceNumber}`);
+      const body = encodeURIComponent(
+        `Beste,\n\n` +
+        `Hierbij ontvang je factuur ${currentInvoiceNumber} voor de werkzaamheden in ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long', year: 'numeric' })}.\n\n` +
+        `Het factuurbedrag is € ${currentTotal.toFixed(2)}.\n\n` +
+        `De factuur is als PDF bijgevoegd.\n\n` +
+        `Met vriendelijke groet,\n${localStorage.getItem('companyName') || ''}`
+      );
+      window.location.href = `mailto:${clientEmail}?subject=${subject}&body=${body}`;
+    }
+  }, 2000);
+  showWarning('📥 PDF wordt gedownload. Daarna opent de e-mailclient. Voeg de PDF handmatig toe.');
 }
 
 // ========== EVENT LISTENERS ==========
 document.getElementById('loadWorkdaysBtn').onclick = loadInvoiceWorkdays;
-document.getElementById('refreshContactsBtn').onclick = refreshContacts;
+document.getElementById('refreshContactsBtn').onclick = () => {
+  loadContacts();
+  showWarning(`🔄 Contacten vernieuwd: ${contacts.length} opdrachtgevers gevonden`);
+};
 document.getElementById('previewInvoiceBtn').onclick = generatePreview;
 document.getElementById('backToEditBtn').onclick = () => {
   document.getElementById('step3').style.display = 'none';
@@ -759,20 +811,19 @@ document.getElementById('saveFilenameBtn').onclick = () => {
   showWarning('💾 Bestandsnaam opgeslagen');
 };
 
-// Secret mode toggle info
+// Geheime modus knoppen
+document.getElementById('downloadNormalBtn').onclick = downloadNormalPDF;
+document.getElementById('downloadSecretBtn').onclick = downloadSecretPDF;
+document.getElementById('downloadExplanationBtn').onclick = downloadExplanationPDF;
+
+// Secret mode toggle
 document.getElementById('secretModeToggle').onchange = (e) => {
   document.getElementById('secretInfo').style.display = e.target.checked ? 'block' : 'none';
 };
 
 // ========== INITIALISATIE ==========
-// Eerst contacten laden
 loadContacts();
-
-// Zorg dat extra lines worden gerenderd
 renderExtraLines();
-
-// Console log voor debugging
-console.log('Factuur maker geladen - contacten:', contacts.length);
 </script>
 </body>
 </html>
