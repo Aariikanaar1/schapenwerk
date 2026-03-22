@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Locaties - Schapenwerk</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: #f5f7fb; padding: 20px 16px 80px 16px; }
+    .card { background: white; border-radius: 24px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    button { border: none; padding: 12px 20px; border-radius: 40px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: transform 0.1s; font-family: inherit; }
+    button:active { transform: scale(0.97); }
+    .btn-primary { background: #0077cc; color: white; }
+    .btn-secondary { background: #e2e8f0; color: #1e293b; }
+    .btn-small { padding: 8px 16px; font-size: 0.75rem; }
+    input { width: 100%; padding: 12px; border-radius: 20px; border: 1px solid #e2e8f0; font-size: 0.9rem; margin-top: 6px; font-family: inherit; }
+    label { font-weight: 500; margin-top: 12px; display: block; font-size: 0.8rem; color: #475569; }
+    .add-location-form { background: #f8fafc; border-radius: 20px; padding: 16px; margin-bottom: 20px; display: none; }
+    .loc-type-selector { display: flex; gap: 10px; margin-bottom: 12px; }
+    .loc-type-selector button { flex: 1; padding: 8px; font-size: 0.8rem; }
+    .address-input { display: none; }
+    .location-item { background: #f8fafc; border-radius: 16px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .location-name { font-size: 1.1rem; font-weight: 600; }
+    .location-coords { font-size: 0.7rem; color: #64748b; margin-top: 4px; }
+    .button-group { display: flex; gap: 10px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <button id="showAddLocationFormBtn" class="btn-primary" style="margin-bottom: 16px;">➕ Nieuwe locatie toevoegen</button>
+  
+  <div id="addLocationForm" class="add-location-form">
+    <div class="loc-type-selector">
+      <button id="useCoordsBtn" class="btn-secondary">📌 Coördinaten</button>
+      <button id="useAddressBtn" class="btn-secondary">🏠 Adres</button>
+    </div>
+    <div id="coordsInput">
+      <label>Breedtegraad (latitude)</label>
+      <input type="number" id="newLocationLat" step="any" placeholder="Bijv. 52.123456">
+      <label>Lengtegraad (longitude)</label>
+      <input type="number" id="newLocationLng" step="any" placeholder="Bijv. 4.123456">
+    </div>
+    <div id="addressInput" class="address-input">
+      <label>Adres</label>
+      <input type="text" id="newLocationAddress" placeholder="Straat + huisnummer, postcode, plaats">
+      <button id="geocodeAddressBtn" class="btn-small" style="margin-top: 8px;">🔍 Zoek coördinaten</button>
+    </div>
+    <label>Naam van de locatie</label>
+    <input type="text" id="newLocationName" placeholder="Bijv. Het Wantveld">
+    <label>Straal (meters)</label>
+    <input type="number" id="newLocationRadius" step="10" value="500" placeholder="500">
+    <div class="button-group">
+      <button id="useCurrentLocationBtn" class="btn-secondary">📍 Huidige locatie</button>
+      <button id="saveNewLocationBtn" class="btn-primary">✅ Opslaan</button>
+      <button id="cancelAddLocationBtn" class="btn-secondary">❌ Annuleren</button>
+    </div>
+  </div>
+  
+  <div id="locationsManageContainer"></div>
+</div>
+
+<script>
+let userDefinedLocations = [];
+let currentLocationType = 'coords';
+
+function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+function escapeHtml(s){if(!s)return'';return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;')}
+function getDistanceBetweenCoords(l1,ln1,l2,ln2){const R=6371,dLat=(l2-l1)*Math.PI/180,dLon=(ln2-ln1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(l1*Math.PI/180)*Math.cos(l2*Math.PI/180)*Math.sin(dLon/2)**2,c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));return R*c}
+
+function loadUserLocations() { const saved = localStorage.getItem('userDefinedLocations'); if(saved) userDefinedLocations = JSON.parse(saved); renderLocationsManager(); }
+function saveUserLocations() { localStorage.setItem('userDefinedLocations', JSON.stringify(userDefinedLocations)); renderLocationsManager(); updateAllStopsWithLocationNames(); }
+function updateAllStopsWithLocationNames() {
+  const sessions = JSON.parse(localStorage.getItem('workSessionsList')||'[]');
+  let updated = false;
+  sessions.forEach(session => {
+    if(session.stops) {
+      session.stops.forEach(stop => {
+        if(stop.lat && stop.lng) {
+          for(const loc of userDefinedLocations) {
+            if(getDistanceBetweenCoords(stop.lat, stop.lng, loc.lat, loc.lng) * 1000 <= loc.radius) {
+              if(loc.name !== stop.location) { stop.location = loc.name; updated = true; }
+              break;
+            }
+          }
+        }
+      });
+    }
+  });
+  if(updated) { localStorage.setItem('workSessionsList', JSON.stringify(sessions)); }
+}
+function renderLocationsManager() {
+  const container = document.getElementById('locationsManageContainer');
+  if(!container) return;
+  if(!userDefinedLocations.length) { container.innerHTML = '<div class="card">📭 Nog geen locaties toegevoegd.</div>'; return; }
+  container.innerHTML = userDefinedLocations.map((loc, idx) => `
+    <div class="location-item">
+      <div class="location-name">📍 ${escapeHtml(loc.name)}</div>
+      <div class="location-coords">📌 ${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} | 📏 Straal: ${loc.radius}m</div>
+      <div class="button-group">
+        <button onclick="editLocation(${idx})" class="btn-small" style="background:#f59e0b;">✏️ Bewerken</button>
+        <button onclick="deleteLocation(${idx})" class="btn-small" style="background:#ef4444;">🗑️ Verwijderen</button>
+      </div>
+    </div>
+  `).join('');
+}
+window.editLocation = (idx) => {
+  const loc = userDefinedLocations[idx];
+  const newName = prompt('Nieuwe naam voor deze locatie:', loc.name);
+  if(newName && newName !== loc.name) { userDefinedLocations[idx].name = newName; saveUserLocations(); showWarning(`✅ Locatie hernoemd naar "${newName}"`); }
+};
+window.deleteLocation = (idx) => {
+  if(confirm('Weet je zeker dat je deze locatie wilt verwijderen?')) { userDefinedLocations.splice(idx, 1); saveUserLocations(); showWarning(`🗑️ Locatie verwijderd`); }
+};
+
+// Formulier
+const showAddLocationFormBtn = document.getElementById('showAddLocationFormBtn');
+const addLocationForm = document.getElementById('addLocationForm');
+const saveNewLocationBtn = document.getElementById('saveNewLocationBtn');
+const cancelAddLocationBtn = document.getElementById('cancelAddLocationBtn');
+const useCurrentLocationBtn = document.getElementById('useCurrentLocationBtn');
+const useCoordsBtn = document.getElementById('useCoordsBtn');
+const useAddressBtn = document.getElementById('useAddressBtn');
+const coordsInput = document.getElementById('coordsInput');
+const addressInput = document.getElementById('addressInput');
+const geocodeAddressBtn = document.getElementById('geocodeAddressBtn');
+const newLocationAddress = document.getElementById('newLocationAddress');
+
+showAddLocationFormBtn.onclick = () => { addLocationForm.style.display = 'block'; showAddLocationFormBtn.style.display = 'none'; };
+cancelAddLocationBtn.onclick = () => { addLocationForm.style.display = 'none'; showAddLocationFormBtn.style.display = 'block'; document.getElementById('newLocationName').value = ''; document.getElementById('newLocationLat').value = ''; document.getElementById('newLocationLng').value = ''; document.getElementById('newLocationAddress').value = ''; document.getElementById('newLocationRadius').value = '500'; };
+useCoordsBtn.onclick = () => { currentLocationType = 'coords'; coordsInput.style.display = 'block'; addressInput.style.display = 'none'; };
+useAddressBtn.onclick = () => { currentLocationType = 'address'; coordsInput.style.display = 'none'; addressInput.style.display = 'block'; };
+useCurrentLocationBtn.onclick = () => {
+  if(!navigator.geolocation) { showWarning('❌ Geolocatie niet ondersteund'); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    document.getElementById('newLocationLat').value = pos.coords.latitude;
+    document.getElementById('newLocationLng').value = pos.coords.longitude;
+    showWarning('✅ Huidige locatie ingevuld');
+  }, () => showWarning('❌ Kon locatie niet ophalen'));
+};
+geocodeAddressBtn.onclick = async () => {
+  const addr = newLocationAddress.value;
+  if(!addr) { showWarning('❌ Vul adres in'); return; }
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1`);
+  const data = await res.json();
+  if(data && data.length) {
+    document.getElementById('newLocationLat').value = data[0].lat;
+    document.getElementById('newLocationLng').value = data[0].lon;
+    showWarning(`✅ Gevonden: ${data[0].lat}, ${data[0].lon}`);
+  } else showWarning('❌ Adres niet gevonden');
+};
+saveNewLocationBtn.onclick = () => {
+  const name = document.getElementById('newLocationName').value.trim();
+  let lat, lng;
+  if(currentLocationType === 'coords') {
+    lat = parseFloat(document.getElementById('newLocationLat').value);
+    lng = parseFloat(document.getElementById('newLocationLng').value);
+  } else {
+    lat = parseFloat(document.getElementById('newLocationLat').value);
+    lng = parseFloat(document.getElementById('newLocationLng').value);
+    if(isNaN(lat) || isNaN(lng)) { showWarning('❌ Vul eerst een adres in en zoek de coördinaten'); return; }
+  }
+  const radius = parseFloat(document.getElementById('newLocationRadius').value) || 500;
+  if(!name) { showWarning('❌ Vul een naam in'); return; }
+  if(isNaN(lat)) { showWarning('❌ Vul een geldige breedtegraad in'); return; }
+  if(isNaN(lng)) { showWarning('❌ Vul een geldige lengtegraad in'); return; }
+  userDefinedLocations.push({ name, lat, lng, radius });
+  saveUserLocations();
+  addLocationForm.style.display = 'none';
+  showAddLocationFormBtn.style.display = 'block';
+  document.getElementById('newLocationName').value = '';
+  document.getElementById('newLocationLat').value = '';
+  document.getElementById('newLocationLng').value = '';
+  document.getElementById('newLocationAddress').value = '';
+  document.getElementById('newLocationRadius').value = '500';
+  showWarning(`✅ Locatie "${name}" toegevoegd!`);
+};
+
+loadUserLocations();
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 {
-  "version": "3.9",
+  "version": "4.0",
   "date": "21 maart 2026",
-  "whatsnew": "📱 Automatische updates via GitHub\n📍 Betere locatienamen met straat + plaats\n👣 Stappenteller werkt nu correct (1 stap per stap)\n🗺️ GPS filter op 20 meter voor nauwkeurigere tracks\n🔘 Drie keer klikken op aan/uit knop opent de app\n📅 Werkdagen tonen standaard huidige maand"
+  "whatsnew": "📱 App nu installeerbaar als PWA\n🐑 Nieuwe naam: Schapenwerk\n📍 Betere locatieherkenning\n👣 Stappenteller werkt nu correct"
 }

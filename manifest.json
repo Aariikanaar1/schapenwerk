@@ -1,10 +1,13 @@
 {
   "name": "Schapenwerk",
   "short_name": "Schapenwerk",
-  "start_url": "/",
+  "description": "Uren & Kilometervergoeding voor zzp'ers",
+  "start_url": "/schapenwerk/",
+  "scope": "/schapenwerk/",
   "display": "standalone",
-  "theme_color": "#0077cc",
   "background_color": "#0077cc",
+  "theme_color": "#0077cc",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230077cc'/%3E%3Ctext x='50' y='70' font-size='50' text-anchor='middle' fill='white'%3E🐑%3C/text%3E%3C/svg%3E",

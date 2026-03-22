@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Feedback - Schapenwerk</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: #f5f7fb; padding: 20px 16px 80px 16px; }
+    .card { background: white; border-radius: 24px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    button { border: none; padding: 12px 20px; border-radius: 40px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: transform 0.1s; font-family: inherit; }
+    button:active { transform: scale(0.97); }
+    .btn-primary { background: #0077cc; color: white; }
+    .btn-secondary { background: #e2e8f0; color: #1e293b; }
+    input, textarea { width: 100%; padding: 12px; border-radius: 20px; border: 1px solid #e2e8f0; font-size: 0.9rem; margin-top: 6px; font-family: inherit; }
+    label { font-weight: 500; margin-top: 12px; display: block; font-size: 0.8rem; color: #475569; }
+    .feedback-status { margin-top: 16px; font-size: 0.85rem; text-align: center; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <p style="margin-bottom: 16px;">Ik heb deze app voor mezelf gemaakt. Is er iets niet goed toe te passen op je eigen situatie? Laat het weten, misschien kan ik dingen aanpassen of toevoegen.</p>
+  
+  <label>Je e-mailadres</label>
+  <input type="email" id="feedbackEmail" placeholder="aariikanaar1@proton.me">
+  
+  <label>Feedback / Suggesties</label>
+  <textarea id="feedbackText" rows="5" placeholder="Wat kan beter? Wat mis je? Wat werkt goed?"></textarea>
+  
+  <div class="button-group" style="display: flex; gap: 10px; margin-top: 16px;">
+    <button id="sendFeedbackBtn" class="btn-primary">📧 Verstuur feedback</button>
+    <button id="cancelFeedbackBtn" class="btn-secondary">Annuleren</button>
+  </div>
+  
+  <div id="feedbackStatus" class="feedback-status"></div>
+</div>
+
+<script>
+function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+
+function sendFeedback() {
+  const email = document.getElementById('feedbackEmail').value.trim();
+  const text = document.getElementById('feedbackText').value.trim();
+  const statusDiv = document.getElementById('feedbackStatus');
+  
+  if(!email) {
+    statusDiv.innerHTML = '❌ Vul je e-mailadres in';
+    statusDiv.style.color = '#dc2626';
+    return;
+  }
+  if(!text) {
+    statusDiv.innerHTML = '❌ Vul je feedback in';
+    statusDiv.style.color = '#dc2626';
+    return;
+  }
+  
+  statusDiv.innerHTML = '📤 Verzenden...';
+  statusDiv.style.color = '#64748b';
+  
+  const formData = new FormData();
+  formData.append('email', email);
+  formData.append('message', text);
+  formData.append('_to', 'aariikanaar1@proton.me');
+  
+  fetch('https://formspree.io/f/mjkvgzqj', {
+    method: 'POST',
+    body: formData,
+    headers: { 'Accept': 'application/json' }
+  })
+  .then(response => {
+    if(response.ok) {
+      statusDiv.innerHTML = '✅ Bedankt voor je feedback!';
+      statusDiv.style.color = '#10b981';
+      document.getElementById('feedbackEmail').value = '';
+      document.getElementById('feedbackText').value = '';
+      showWarning('✅ Feedback verzonden!');
+    } else {
+      statusDiv.innerHTML = '❌ Er ging iets mis. Probeer opnieuw.';
+      statusDiv.style.color = '#dc2626';
+    }
+  })
+  .catch(() => {
+    statusDiv.innerHTML = '❌ Verzenden mislukt. Controleer je internetverbinding.';
+    statusDiv.style.color = '#dc2626';
+  });
+}
+
+document.getElementById('sendFeedbackBtn').onclick = sendFeedback;
+document.getElementById('cancelFeedbackBtn').onclick = () => {
+  window.parent.postMessage({type:'page',page:'werkdag'},'*');
+};
+</script>
+</body>
+</html>

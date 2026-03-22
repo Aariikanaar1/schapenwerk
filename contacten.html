@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Contacten - Schapenwerk</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: #f5f7fb; padding: 20px 16px 80px 16px; }
+    .card { background: white; border-radius: 24px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    button { border: none; padding: 12px 20px; border-radius: 40px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: transform 0.1s; font-family: inherit; }
+    button:active { transform: scale(0.97); }
+    .btn-primary { background: #0077cc; color: white; }
+    .btn-secondary { background: #e2e8f0; color: #1e293b; }
+    .btn-small { padding: 8px 16px; font-size: 0.75rem; flex: none; }
+    input { width: 100%; padding: 12px; border-radius: 20px; border: 1px solid #e2e8f0; font-size: 0.9rem; margin-top: 6px; font-family: inherit; }
+    label { font-weight: 500; margin-top: 12px; display: block; font-size: 0.8rem; color: #475569; }
+    .contact-item { background: #f8fafc; border-radius: 16px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .contact-name { font-size: 1.1rem; font-weight: 600; margin-bottom: 4px; }
+    .contact-details { font-size: 0.8rem; color: #64748b; margin-top: 4px; }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+    .modal-content { background: white; border-radius: 32px; padding: 24px; width: 90%; max-width: 400px; }
+    .button-group { display: flex; gap: 10px; margin-top: 16px; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <button id="addContactBtn" class="btn-primary" style="margin-bottom: 16px;">+ Nieuwe opdrachtgever</button>
+  <div id="contactsContainer"></div>
+</div>
+
+<div id="contactModal" class="modal">
+  <div class="modal-content">
+    <h3 id="contactModalTitle">Opdrachtgever toevoegen</h3>
+    <input type="hidden" id="contactEditId">
+    <label>Naam contactpersoon</label>
+    <input type="text" id="contactName" placeholder="Naam">
+    <label>Bedrijfsnaam</label>
+    <input type="text" id="contactCompany" placeholder="Bedrijfsnaam">
+    <label>Straat + huisnummer</label>
+    <input type="text" id="contactStreet" placeholder="Straat + nr">
+    <label>Postcode + plaats</label>
+    <input type="text" id="contactCity" placeholder="Postcode + plaats">
+    <label>KvK nummer</label>
+    <input type="text" id="contactKvk" placeholder="KvK">
+    <div class="button-group">
+      <button id="contactSaveBtn" class="btn-primary">Opslaan</button>
+      <button id="contactCancelBtn" class="btn-secondary">Annuleren</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let contacts = [];
+
+function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
+function getContactDisplayName(c){ return c.company?.trim() || c.name || 'Onbekend'; }
+
+function loadContacts() {
+  const saved = localStorage.getItem('contacts');
+  if(saved) contacts = JSON.parse(saved);
+  renderContacts();
+}
+
+function saveContacts() {
+  localStorage.setItem('contacts', JSON.stringify(contacts));
+  renderContacts();
+}
+
+function renderContacts() {
+  const container = document.getElementById('contactsContainer');
+  if(!container) return;
+  if(!contacts.length) {
+    container.innerHTML = '<div class="card" style="background:#f8fafc;">📭 Nog geen opdrachtgevers toegevoegd.</div>';
+    return;
+  }
+  container.innerHTML = contacts.map(ct => `
+    <div class="contact-item">
+      <div class="contact-name">${escapeHtml(getContactDisplayName(ct))}</div>
+      <div class="contact-details">
+        ${ct.company ? `🏢 ${escapeHtml(ct.company)}<br>` : ''}
+        ${ct.name ? `👤 ${escapeHtml(ct.name)}<br>` : ''}
+        ${ct.street ? `📍 ${escapeHtml(ct.street)}<br>` : ''}
+        ${ct.city ? `📮 ${escapeHtml(ct.city)}<br>` : ''}
+        ${ct.kvk ? `🔑 KvK: ${escapeHtml(ct.kvk)}` : ''}
+      </div>
+      <div class="button-group" style="margin-top: 12px;">
+        <button onclick="editContact(${ct.id})" class="btn-small" style="background:#f59e0b;">✏️ Bewerken</button>
+        <button onclick="deleteContact(${ct.id})" class="btn-small" style="background:#ef4444;">🗑️ Verwijderen</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function openContactModal(contact = null) {
+  const modal = document.getElementById('contactModal');
+  if(contact) {
+    document.getElementById('contactModalTitle').innerText = 'Opdrachtgever bewerken';
+    document.getElementById('contactEditId').value = contact.id;
+    document.getElementById('contactName').value = contact.name || '';
+    document.getElementById('contactCompany').value = contact.company || '';
+    document.getElementById('contactStreet').value = contact.street || '';
+    document.getElementById('contactCity').value = contact.city || '';
+    document.getElementById('contactKvk').value = contact.kvk || '';
+  } else {
+    document.getElementById('contactModalTitle').innerText = 'Opdrachtgever toevoegen';
+    document.getElementById('contactEditId').value = '';
+    document.getElementById('contactName').value = '';
+    document.getElementById('contactCompany').value = '';
+    document.getElementById('contactStreet').value = '';
+    document.getElementById('contactCity').value = '';
+    document.getElementById('contactKvk').value = '';
+  }
+  modal.style.display = 'flex';
+}
+
+function closeContactModal() {
+  document.getElementById('contactModal').style.display = 'none';
+}
+
+function saveContact() {
+  const id = document.getElementById('contactEditId').value ? parseInt(document.getElementById('contactEditId').value) : Date.now();
+  const newContact = {
+    id: id,
+    name: document.getElementById('contactName').value.trim(),
+    company: document.getElementById('contactCompany').value.trim(),
+    street: document.getElementById('contactStreet').value.trim(),
+    city: document.getElementById('contactCity').value.trim(),
+    kvk: document.getElementById('contactKvk').value.trim()
+  };
+  
+  if(document.getElementById('contactEditId').value) {
+    const index = contacts.findIndex(c => c.id === id);
+    if(index !== -1) contacts[index] = newContact;
+  } else {
+    contacts.push(newContact);
+  }
+  
+  saveContacts();
+  closeContactModal();
+  showWarning('✅ Opdrachtgever opgeslagen');
+}
+
+function editContact(id) {
+  const contact = contacts.find(c => c.id === id);
+  if(contact) openContactModal(contact);
+}
+
+function deleteContact(id) {
+  if(confirm('Weet je zeker dat je deze opdrachtgever wilt verwijderen?')) {
+    contacts = contacts.filter(c => c.id !== id);
+    saveContacts();
+    showWarning('🗑️ Opdrachtgever verwijderd');
+  }
+}
+
+document.getElementById('addContactBtn').onclick = () => openContactModal();
+document.getElementById('contactSaveBtn').onclick = saveContact;
+document.getElementById('contactCancelBtn').onclick = closeContactModal;
+
+loadContacts();
+</script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Instellingen - Schapenwerk</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: #f5f7fb; padding: 20px 16px 80px 16px; }
+    .card { background: white; border-radius: 24px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    input { width: 100%; padding: 12px; border-radius: 20px; border: 1px solid #e2e8f0; font-size: 0.9rem; margin-top: 6px; font-family: inherit; }
+    label { font-weight: 500; margin-top: 12px; display: block; font-size: 0.8rem; color: #475569; }
+    button { border: none; padding: 12px 20px; border-radius: 40px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: transform 0.1s; font-family: inherit; flex: 1; min-width: 100px; }
+    button:active { transform: scale(0.97); }
+    .btn-primary { background: #0077cc; color: white; }
+    .btn-small { padding: 8px 16px; font-size: 0.75rem; flex: none; }
+    .toggle-switch { display: flex; align-items: center; justify-content: space-between; background: #f1f5f9; padding: 12px 16px; border-radius: 48px; margin: 15px 0; }
+    .switch { position: relative; display: inline-block; width: 48px; height: 26px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: 0.2s; border-radius: 34px; }
+    .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: 0.2s; border-radius: 50%; }
+    input:checked + .slider { background-color: #0077cc; }
+    input:checked + .slider:before { transform: translateX(22px); }
+    .logo-preview { width: 60px; height: 60px; background: #f1f5f9; border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .flex-row { display: flex; gap: 12px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h3>Je eigen gegevens</h3>
+  <label>Bedrijfsnaam</label>
+  <input type="text" id="companyName" placeholder="Bedrijfsnaam">
+  <label>Straat + huisnummer</label>
+  <input type="text" id="companyStreet" placeholder="Straat + huisnummer">
+  <label>Postcode + plaats</label>
+  <input type="text" id="companyLocation" placeholder="Postcode + plaats">
+  <label>IBAN</label>
+  <input type="text" id="companyIban" placeholder="IBAN">
+  <label>KvK nummer</label>
+  <input type="text" id="companyKvk" placeholder="KvK nummer">
+  
+  <div class="flex-row">
+    <div id="logoPreview" class="logo-preview"></div>
+    <input type="file" id="logoUpload" accept="image/*" style="flex:1;">
+    <button id="clearLogoBtn" class="btn-small">Verwijder</button>
+  </div>
+  
+  <h3 style="margin-top: 20px;">Functies</h3>
+  
+  <div style="display:flex; justify-content:space-between; padding:12px 0;">
+    <span>📟 Kilometerregistratie</span>
+    <label class="switch"><input type="checkbox" id="toggleKmReg" checked><span class="slider"></span></label>
+  </div>
+  <div style="display:flex; justify-content:space-between; padding:12px 0;">
+    <span>👣 Stappenteller</span>
+    <label class="switch"><input type="checkbox" id="toggleStepCounter" checked><span class="slider"></span></label>
+  </div>
+  <div style="display:flex; justify-content:space-between; padding:12px 0;">
+    <span>🗺️ GPS tracking</span>
+    <label class="switch"><input type="checkbox" id="toggleGps" checked><span class="slider"></span></label>
+  </div>
+  <div style="display:flex; justify-content:space-between; padding:12px 0;">
+    <span>🏠 Automatisch werkdag afsluiten bij thuiskomst</span>
+    <label class="switch"><input type="checkbox" id="toggleAutoEndWorkday"><span class="slider"></span></label>
+  </div>
+  <div style="display:flex; justify-content:space-between; padding:12px 0;">
+    <span>🔘 Snel activeren (drie keer klikken aan/uit)</span>
+    <label class="switch"><input type="checkbox" id="toggleQuickActivate"><span class="slider"></span></label>
+  </div>
+</div>
+
+<script>
+function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+
+function loadSettings() {
+  const fields = ['companyName', 'companyStreet', 'companyLocation', 'companyIban', 'companyKvk'];
+  fields.forEach(id => {
+    const val = localStorage.getItem(id);
+    if(val && document.getElementById(id)) document.getElementById(id).value = val;
+  });
+  
+  const toggles = ['toggleKmReg', 'toggleStepCounter', 'toggleGps', 'toggleAutoEndWorkday', 'toggleQuickActivate'];
+  toggles.forEach(id => {
+    const val = localStorage.getItem(id);
+    if(val === 'true') document.getElementById(id).checked = true;
+    else if(val === 'false') document.getElementById(id).checked = false;
+  });
+  
+  const logo = localStorage.getItem('companyLogo');
+  if(logo) document.getElementById('logoPreview').innerHTML = `<img src="${logo}" style="max-width:100%; max-height:100%;">`;
+}
+
+function saveSettings() {
+  const fields = ['companyName', 'companyStreet', 'companyLocation', 'companyIban', 'companyKvk'];
+  fields.forEach(id => {
+    localStorage.setItem(id, document.getElementById(id).value);
+  });
+  
+  const toggles = ['toggleKmReg', 'toggleStepCounter', 'toggleGps', 'toggleAutoEndWorkday', 'toggleQuickActivate'];
+  toggles.forEach(id => {
+    localStorage.setItem(id, document.getElementById(id).checked);
+  });
+  
+  showWarning('✅ Instellingen opgeslagen!');
+}
+
+document.getElementById('logoUpload').onchange = (e) => {
+  const file = e.target.files[0];
+  if(file) {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const logo = ev.target.result;
+      localStorage.setItem('companyLogo', logo);
+      document.getElementById('logoPreview').innerHTML = `<img src="${logo}" style="max-width:100%; max-height:100%;">`;
+      showWarning('✅ Logo opgeslagen!');
+    };
+    reader.readAsDataURL(file);
+  }
+};
+
+document.getElementById('clearLogoBtn').onclick = () => {
+  localStorage.removeItem('companyLogo');
+  document.getElementById('logoPreview').innerHTML = '';
+  showWarning('🗑️ Logo verwijderd');
+};
+
+// Auto-save bij wijziging
+['companyName', 'companyStreet', 'companyLocation', 'companyIban', 'companyKvk'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    localStorage.setItem(id, document.getElementById(id).value);
+  });
+});
+
+['toggleKmReg', 'toggleStepCounter', 'toggleGps', 'toggleAutoEndWorkday', 'toggleQuickActivate'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    localStorage.setItem(id, document.getElementById(id).checked);
+  });
+});
+
+loadSettings();
+</script>
+</body>
+</html>

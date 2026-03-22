@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Facturen - Schapenwerk</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: #f5f7fb; padding: 20px 16px 80px 16px; }
+    .card { background: white; border-radius: 24px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    button { border: none; padding: 12px 20px; border-radius: 40px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: transform 0.1s; font-family: inherit; }
+    button:active { transform: scale(0.97); }
+    .btn-primary { background: #0077cc; color: white; }
+    .btn-small { padding: 8px 16px; font-size: 0.75rem; flex: none; }
+    select, input { padding: 10px; border-radius: 40px; border: 1px solid #e2e8f0; font-family: inherit; }
+    .filter-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
+    .session-item { background: white; border-radius: 20px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .button-group { display: flex; gap: 10px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="filter-row">
+    <select id="filterInvoiceYear"></select>
+    <select id="filterInvoiceMonth">
+      <option value="all">Alle maanden</option>
+      <option value="0">Januari</option><option value="1">Februari</option><option value="2">Maart</option>
+      <option value="3">April</option><option value="4">Mei</option><option value="5">Juni</option>
+      <option value="6">Juli</option><option value="7">Augustus</option><option value="8">September</option>
+      <option value="9">Oktober</option><option value="10">November</option><option value="11">December</option>
+    </select>
+    <button id="filterInvoicesBtn" class="btn-primary">🔍 Filter</button>
+  </div>
+  <div id="savedInvoicesContainer"></div>
+</div>
+
+<script>
+function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+function formatDateToDutch(d){ return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
+function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
+
+function renderSavedInvoices() {
+  const invoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+  const year = document.getElementById('filterInvoiceYear')?.value;
+  const month = document.getElementById('filterInvoiceMonth')?.value;
+  
+  let filtered = invoices;
+  if(year && year !== 'all') filtered = filtered.filter(i => i.year == year);
+  if(month && month !== 'all') filtered = filtered.filter(i => i.month == month);
+  
+  const container = document.getElementById('savedInvoicesContainer');
+  if(!container) return;
+  if(!filtered.length) {
+    container.innerHTML = '<div class="card" style="background:#f8fafc;">📭 Geen opgeslagen facturen</div>';
+    return;
+  }
+  
+  container.innerHTML = filtered.map(inv => `
+    <div class="session-item">
+      <div><strong>Factuur ${escapeHtml(inv.invoiceNumber)}</strong> - ${escapeHtml(inv.clientName)} - ${new Date(inv.date).toLocaleDateString('nl-NL')}</div>
+      <div class="button-group">
+        <button onclick="viewSavedInvoice(${inv.id})" class="btn-small">👁️ Bekijk</button>
+        <button onclick="deleteSavedInvoice(${inv.id})" class="btn-small" style="background:#ef4444;">🗑️ Verwijderen</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+window.viewSavedInvoice = (id) => {
+  const invoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+  const inv = invoices.find(i => i.id === id);
+  if(inv) {
+    const previewContainer = document.createElement('div');
+    previewContainer.style.position = 'fixed';
+    previewContainer.style.top = '0';
+    previewContainer.style.left = '0';
+    previewContainer.style.right = '0';
+    previewContainer.style.bottom = '0';
+    previewContainer.style.background = 'rgba(0,0,0,0.8)';
+    previewContainer.style.zIndex = '2000';
+    previewContainer.style.display = 'flex';
+    previewContainer.style.alignItems = 'center';
+    previewContainer.style.justifyContent = 'center';
+    previewContainer.style.overflow = 'auto';
+    previewContainer.style.padding = '20px';
+    
+    const content = document.createElement('div');
+    content.style.background = 'white';
+    content.style.borderRadius = '24px';
+    content.style.maxWidth = '95%';
+    content.style.maxHeight = '90vh';
+    content.style.overflow = 'auto';
+    content.style.padding = '20px';
+    content.innerHTML = inv.html;
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.innerText = '✖ Sluiten';
+    closeBtn.style.position = 'sticky';
+    closeBtn.style.top = '0';
+    closeBtn.style.float = 'right';
+    closeBtn.style.margin = '10px';
+    closeBtn.style.background = '#ef4444';
+    closeBtn.style.color = 'white';
+    closeBtn.style.border = 'none';
+    closeBtn.style.padding = '8px 16px';
+    closeBtn.style.borderRadius = '40px';
+    closeBtn.style.cursor = 'pointer';
+    closeBtn.onclick = () => previewContainer.remove();
+    
+    content.prepend(closeBtn);
+    previewContainer.appendChild(content);
+    document.body.appendChild(previewContainer);
+  }
+};
+
+window.deleteSavedInvoice = (id) => {
+  if(confirm('Weet je zeker dat je deze factuur wilt verwijderen?')) {
+    let invoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+    invoices = invoices.filter(i => i.id !== id);
+    localStorage.setItem('savedInvoices', JSON.stringify(invoices));
+    renderSavedInvoices();
+    showWarning('🗑️ Factuur verwijderd');
+  }
+};
+
+const yearSelect = document.getElementById('filterInvoiceYear');
+if(yearSelect) {
+  const currentYear = new Date().getFullYear();
+  for(let y = currentYear - 2; y <= currentYear + 2; y++) {
+    yearSelect.innerHTML += `<option value="${y}">${y}</option>`;
+  }
+  yearSelect.value = currentYear;
+}
+
+document.getElementById('filterInvoicesBtn').onclick = renderSavedInvoices;
+renderSavedInvoices();
+</script>
+</body>
+</html>
