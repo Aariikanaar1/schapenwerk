@@ -28,6 +28,7 @@
     #locationsMap { height: 300px; border-radius: 20px; margin-bottom: 20px; background: #eef2f6; }
     .filter-bar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
     .filter-bar select { width: auto; flex: 1; min-width: 150px; margin-top: 0; }
+    .edit-coords-input { width: 100%; padding: 8px; border-radius: 16px; border: 1px solid #e2e8f0; font-family: monospace; }
   </style>
 </head>
 <body>
@@ -50,10 +51,8 @@
       <button id="useAddressBtn" class="btn-secondary">🏠 Adres</button>
     </div>
     <div id="coordsInput">
-      <label>Breedtegraad (latitude)</label>
-      <input type="number" id="newLocationLat" step="any" placeholder="52.123456">
-      <label>Lengtegraad (longitude)</label>
-      <input type="number" id="newLocationLng" step="any" placeholder="4.123456">
+      <label>Coördinaten (bijv: 52.363384, 4.659315)</label>
+      <input type="text" id="newLocationCoords" placeholder="52.123456, 4.123456">
     </div>
     <div id="addressInput" class="address-input">
       <label>Adres</label>
@@ -84,17 +83,23 @@ let currentLocationType = 'coords';
 let map;
 let markers = [];
 let currentFilterClient = 'all';
+let editIndex = null; // Voor bewerken
 
 function showWarning(msg){ 
   if(window.parent && window.parent.postMessage) {
     window.parent.postMessage({type:'warning',message:msg},'*');
-  } else {
-    alert(msg);
-  }
+  } else { alert(msg); }
 }
 function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
 function getDistanceBetweenCoords(l1,ln1,l2,ln2){ const R=6371,dLat=(l2-l1)*Math.PI/180,dLon=(ln2-ln1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(l1*Math.PI/180)*Math.cos(l2*Math.PI/180)*Math.sin(dLon/2)**2,c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));return R*c; }
 function getContactDisplayName(c){ return c.company?.trim() || c.name || 'Onbekend'; }
+function parseCoords(coordsStr) {
+  const parts = coordsStr.split(',').map(p => parseFloat(p.trim()));
+  if(parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+    return { lat: parts[0], lng: parts[1] };
+  }
+  return null;
+}
 
 function loadContacts() {
   const s = localStorage.getItem('contacts');
@@ -193,6 +198,7 @@ function updateAllStopsWithLocationNames() {
     showWarning('✅ Locaties bijgewerkt in werkdagen');
   }
 }
+
 function renderLocationsManager() {
   const container = document.getElementById('locationsManageContainer');
   if(!container) return;
@@ -217,33 +223,83 @@ function renderLocationsManager() {
     const client = contacts.find(c => c.id == loc.clientId);
     const clientName = client ? getContactDisplayName(client) : 'Geen';
     return `
-      <div class="location-item">
+      <div class="location-item" data-idx="${originalIdx}">
         <div class="location-name">📍 ${escapeHtml(loc.name)}</div>
         <div class="location-coords">👤 ${escapeHtml(clientName)} | 📌 ${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} | 📏 Straal: ${loc.radius}m</div>
         <div class="button-group">
-          <button onclick="editLocation(${originalIdx})" class="btn-small" style="background:#f59e0b;">✏️ Bewerken</button>
-          <button onclick="deleteLocation(${originalIdx})" class="btn-small" style="background:#ef4444;">🗑️ Verwijderen</button>
+          <button class="edit-location" data-idx="${originalIdx}" style="background:#f59e0b;" class="btn-small">✏️ Bewerken</button>
+          <button class="delete-location" data-idx="${originalIdx}" style="background:#ef4444;" class="btn-small">🗑️ Verwijderen</button>
         </div>
       </div>
     `;
   }).join('');
+  
+  // Event listeners voor bewerken en verwijderen
+  document.querySelectorAll('.edit-location').forEach(btn => {
+    btn.onclick = () => editLocation(parseInt(btn.dataset.idx));
+  });
+  document.querySelectorAll('.delete-location').forEach(btn => {
+    btn.onclick = () => deleteLocation(parseInt(btn.dataset.idx));
+  });
 }
-window.editLocation = (idx) => {
+
+function editLocation(idx) {
   const loc = userDefinedLocations[idx];
-  const newName = prompt('Nieuwe naam voor deze locatie:', loc.name);
+  if(!loc) return;
+  
+  const newName = prompt('Nieuwe naam:', loc.name);
   if(newName && newName !== loc.name) { 
     userDefinedLocations[idx].name = newName; 
     saveUserLocations(); 
     showWarning(`✅ Locatie hernoemd naar "${newName}"`); 
   }
-};
-window.deleteLocation = (idx) => {
+  
+  const newCoords = prompt('Nieuwe coördinaten (bijv: 52.363384, 4.659315):', `${loc.lat}, ${loc.lng}`);
+  if(newCoords) {
+    const coords = parseCoords(newCoords);
+    if(coords) {
+      userDefinedLocations[idx].lat = coords.lat;
+      userDefinedLocations[idx].lng = coords.lng;
+      saveUserLocations();
+      showWarning(`✅ Coördinaten bijgewerkt`);
+    } else {
+      showWarning('❌ Ongeldige coördinaten. Gebruik formaat: 52.123456, 4.123456');
+    }
+  }
+  
+  const clientSelect = document.getElementById('locationClientSelect');
+  const currentClientName = contacts.find(c => c.id == loc.clientId)?.name || 'Geen';
+  const newClient = prompt('Nieuwe opdrachtgever (ID of naam, of leeg laten voor geen):', currentClientName);
+  if(newClient !== null) {
+    const foundClient = contacts.find(c => c.name?.toLowerCase().includes(newClient.toLowerCase()) || c.company?.toLowerCase().includes(newClient.toLowerCase()));
+    if(foundClient) {
+      userDefinedLocations[idx].clientId = foundClient.id;
+      saveUserLocations();
+      showWarning(`✅ Opdrachtgever bijgewerkt naar ${getContactDisplayName(foundClient)}`);
+    } else if(newClient === '' || newClient.toLowerCase() === 'geen') {
+      userDefinedLocations[idx].clientId = null;
+      saveUserLocations();
+      showWarning(`✅ Opdrachtgever verwijderd`);
+    } else if(newClient !== currentClientName) {
+      showWarning('❌ Opdrachtgever niet gevonden. Gebruik de exacte naam uit contacten.');
+    }
+  }
+  
+  const newRadius = prompt('Nieuwe straal in meters:', loc.radius);
+  if(newRadius && !isNaN(parseFloat(newRadius))) {
+    userDefinedLocations[idx].radius = parseFloat(newRadius);
+    saveUserLocations();
+    showWarning(`✅ Straal bijgewerkt naar ${newRadius} meter`);
+  }
+}
+
+function deleteLocation(idx) {
   if(confirm('Weet je zeker dat je deze locatie wilt verwijderen?')) { 
     userDefinedLocations.splice(idx, 1); 
     saveUserLocations(); 
     showWarning(`🗑️ Locatie verwijderd`); 
   }
-};
+}
 
 function applyFilter() {
   currentFilterClient = document.getElementById('clientFilterSelect').value;
@@ -252,7 +308,7 @@ function applyFilter() {
   showWarning(`🔍 Filter toegepast`);
 }
 
-// Formulier
+// Formulier voor nieuwe locatie
 const showAddLocationFormBtn = document.getElementById('showAddLocationFormBtn');
 const addLocationForm = document.getElementById('addLocationForm');
 const saveNewLocationBtn = document.getElementById('saveNewLocationBtn');
@@ -264,16 +320,16 @@ const coordsInput = document.getElementById('coordsInput');
 const addressInput = document.getElementById('addressInput');
 const geocodeAddressBtn = document.getElementById('geocodeAddressBtn');
 const newLocationAddress = document.getElementById('newLocationAddress');
+const newLocationCoords = document.getElementById('newLocationCoords');
 
 showAddLocationFormBtn.onclick = () => { addLocationForm.style.display = 'block'; showAddLocationFormBtn.style.display = 'none'; };
-cancelAddLocationBtn.onclick = () => { addLocationForm.style.display = 'none'; showAddLocationFormBtn.style.display = 'block'; document.getElementById('newLocationName').value = ''; document.getElementById('newLocationLat').value = ''; document.getElementById('newLocationLng').value = ''; document.getElementById('newLocationAddress').value = ''; document.getElementById('newLocationRadius').value = '500'; };
+cancelAddLocationBtn.onclick = () => { addLocationForm.style.display = 'none'; showAddLocationFormBtn.style.display = 'block'; document.getElementById('newLocationName').value = ''; document.getElementById('newLocationCoords').value = ''; document.getElementById('newLocationAddress').value = ''; document.getElementById('newLocationRadius').value = '500'; };
 useCoordsBtn.onclick = () => { currentLocationType = 'coords'; coordsInput.style.display = 'block'; addressInput.style.display = 'none'; };
 useAddressBtn.onclick = () => { currentLocationType = 'address'; coordsInput.style.display = 'none'; addressInput.style.display = 'block'; };
 useCurrentLocationBtn.onclick = () => {
   if(!navigator.geolocation) { showWarning('❌ Geolocatie niet ondersteund'); return; }
   navigator.geolocation.getCurrentPosition(pos => {
-    document.getElementById('newLocationLat').value = pos.coords.latitude;
-    document.getElementById('newLocationLng').value = pos.coords.longitude;
+    document.getElementById('newLocationCoords').value = `${pos.coords.latitude}, ${pos.coords.longitude}`;
     showWarning('✅ Huidige locatie ingevuld');
   }, () => showWarning('❌ Kon locatie niet ophalen'));
 };
@@ -283,34 +339,40 @@ geocodeAddressBtn.onclick = async () => {
   const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr)}&limit=1`);
   const data = await res.json();
   if(data && data.length) {
-    document.getElementById('newLocationLat').value = data[0].lat;
-    document.getElementById('newLocationLng').value = data[0].lon;
+    document.getElementById('newLocationCoords').value = `${data[0].lat}, ${data[0].lon}`;
     showWarning(`✅ Gevonden: ${data[0].lat}, ${data[0].lon}`);
   } else showWarning('❌ Adres niet gevonden');
 };
 saveNewLocationBtn.onclick = () => {
   const name = document.getElementById('newLocationName').value.trim();
   const clientId = document.getElementById('locationClientSelect').value;
-  let lat, lng;
-  if(currentLocationType === 'coords') {
-    lat = parseFloat(document.getElementById('newLocationLat').value);
-    lng = parseFloat(document.getElementById('newLocationLng').value);
-  } else {
-    lat = parseFloat(document.getElementById('newLocationLat').value);
-    lng = parseFloat(document.getElementById('newLocationLng').value);
-    if(isNaN(lat) || isNaN(lng)) { showWarning('❌ Vul eerst een adres in en zoek de coördinaten'); return; }
-  }
   const radius = parseFloat(document.getElementById('newLocationRadius').value) || 500;
+  let lat, lng;
+  
+  if(currentLocationType === 'coords') {
+    const coordsStr = newLocationCoords.value.trim();
+    const coords = parseCoords(coordsStr);
+    if(!coords) { showWarning('❌ Ongeldige coördinaten. Gebruik formaat: 52.123456, 4.123456'); return; }
+    lat = coords.lat;
+    lng = coords.lng;
+  } else {
+    const coordsStr = newLocationCoords.value.trim();
+    const coords = parseCoords(coordsStr);
+    if(!coords) { showWarning('❌ Geen geldige coördinaten gevonden. Gebruik "Zoek coördinaten" eerst.'); return; }
+    lat = coords.lat;
+    lng = coords.lng;
+  }
+  
   if(!name) { showWarning('❌ Vul een naam in'); return; }
   if(isNaN(lat)) { showWarning('❌ Vul een geldige breedtegraad in'); return; }
   if(isNaN(lng)) { showWarning('❌ Vul een geldige lengtegraad in'); return; }
+  
   userDefinedLocations.push({ id: Date.now(), name, lat, lng, radius, clientId: clientId || null });
   saveUserLocations();
   addLocationForm.style.display = 'none';
   showAddLocationFormBtn.style.display = 'block';
   document.getElementById('newLocationName').value = '';
-  document.getElementById('newLocationLat').value = '';
-  document.getElementById('newLocationLng').value = '';
+  document.getElementById('newLocationCoords').value = '';
   document.getElementById('newLocationAddress').value = '';
   document.getElementById('newLocationRadius').value = '500';
   showWarning(`✅ Locatie "${name}" toegevoegd!`);

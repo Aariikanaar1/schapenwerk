@@ -48,10 +48,8 @@
 
 <div class="side-menu" id="sideMenu">
   <div class="menu-header"><h2>🐑 Schapenwerk</h2><p>Uren & Kilometervergoeding</p></div>
-  <div class="menu-items" id="menuItemsContainer">
-    <!-- Menu items worden dynamisch geladen op basis van instellingen -->
-  </div>
-  <div class="menu-footer"><span id="versionFooter">v4.9</span></div>
+  <div class="menu-items" id="menuItemsContainer"></div>
+  <div class="menu-footer"><span id="versionFooter">v5.0</span></div>
 </div>
 
 <main id="mainContent">
@@ -61,7 +59,7 @@
 </main>
 
 <script>
-// ========== MENU ITEMS MET SCHUIFJES ==========
+// ========== MENU ITEMS ==========
 const allMenuItems = [
   { id: "werkdag", name: "Werkdag", icon: "🐑", featureKey: "toggleWerkdag" },
   { id: "privé-rit", name: "Privé rit", icon: "🏠", featureKey: "togglePriveRit" },
@@ -76,12 +74,10 @@ const allMenuItems = [
   { id: "feedback", name: "Feedback", icon: "💬", featureKey: "toggleFeedback" }
 ];
 
-// Laad de instellingen voor welke pagina's zichtbaar zijn
 function loadPageVisibilitySettings() {
   const settings = {};
   allMenuItems.forEach(item => {
     const value = localStorage.getItem(item.featureKey);
-    // Standaard alles aan als er nog geen instelling is
     settings[item.featureKey] = value !== null ? value === 'true' : true;
   });
   return settings;
@@ -101,14 +97,20 @@ function renderMenu() {
       btn.setAttribute('data-page', item.id);
       btn.innerHTML = `<span>${item.icon}</span> ${item.name}`;
       btn.onclick = () => {
-        const page = btn.dataset.page;
-        loadPage(page);
+        loadPage(item.id);
         closeMenu();
       };
       container.appendChild(btn);
     }
   });
 }
+
+// Luister naar berichten van iframe om menu te verversen
+window.addEventListener('message', (event) => {
+  if(event.data && event.data.type === 'refreshMenu') {
+    renderMenu();
+  }
+});
 
 // ========== UPDATE DETECTIE ==========
 let updateToast = document.getElementById('updateToast');
@@ -119,28 +121,17 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/schapenwerk/sw.js')
     .then(registration => {
       swRegistration = registration;
-      console.log('Service Worker geregistreerd');
       registration.update();
-      setInterval(() => {
-        registration.update();
-      }, 60 * 60 * 1000);
+      setInterval(() => { registration.update(); }, 60 * 60 * 1000);
     })
     .catch(err => console.log('Service Worker fout:', err));
   
   navigator.serviceWorker.addEventListener('message', event => {
     if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
-      showUpdateToast();
+      updateToast.style.display = 'block';
+      setTimeout(() => { if (updateToast.style.display === 'block') updateToast.style.display = 'none'; }, 10000);
     }
   });
-}
-
-function showUpdateToast() {
-  updateToast.style.display = 'block';
-  setTimeout(() => {
-    if (updateToast.style.display === 'block') {
-      updateToast.style.display = 'none';
-    }
-  }, 10000);
 }
 
 if (updateNowBtn) {
@@ -164,9 +155,7 @@ document.addEventListener('visibilitychange', () => {
   if(quickActivate && document.hidden) {
     powerPressCount++;
     if(powerPressTimer) clearTimeout(powerPressTimer);
-    powerPressTimer = setTimeout(() => {
-      powerPressCount = 0;
-    }, 1000);
+    powerPressTimer = setTimeout(() => { powerPressCount = 0; }, 1000);
   }
 });
 
@@ -219,21 +208,18 @@ const pages = {
 function loadPage(pageId) {
   const pageFile = pages[pageId];
   if(!pageFile) { pageContainer.innerHTML = '<div class="loading">❌ Pagina niet gevonden</div>'; return; }
-  
   pageContainer.innerHTML = `<iframe id="pageFrame" src="${pageFile}" title="${pageId}"></iframe>`;
   localStorage.setItem('lastPage', pageId);
   
   window.addEventListener('message', (event) => {
-    if(event.data && event.data.type === 'warning') {
-      showWarning(event.data.message);
-    }
+    if(event.data && event.data.type === 'warning') showWarning(event.data.message);
   });
 }
 
 const lastPage = localStorage.getItem('lastPage') || 'werkdag';
 loadPage(lastPage);
 renderMenu();
-document.getElementById('versionFooter').innerHTML = 'v4.9<br><span style="font-size:9px;">Schuifjes per pagina</span>';
+document.getElementById('versionFooter').innerHTML = 'v5.0<br><span style="font-size:9px;">Factuur verbeterd</span>';
 </script>
 </body>
 </html>
