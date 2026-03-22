@@ -107,6 +107,8 @@ let sessionPhotos = [];
 let routePoints = [];
 let currentSessionSteps = 0, stepCounterActive = true, isWalking = false, lastRoutePointTime = 0, lastStepTime = 0;
 let contacts = [];
+let lastValidPoint = null;
+let pointBuffer = []; // Bewaar laatste 3 punten voor filter
 
 // ========== HELPER FUNCTIES ==========
 function formatTime(s){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`}
@@ -120,20 +122,49 @@ function updateDisplays(){
 function getDistanceBetweenCoords(l1,ln1,l2,ln2){const R=6371,dLat=(l2-l1)*Math.PI/180,dLon=(ln2-ln1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(l1*Math.PI/180)*Math.cos(l2*Math.PI/180)*Math.sin(dLon/2)**2,c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));return R*c}
 function anyTimerActive(){return travelToRunning||workRunning||travelBackRunning}
 
-// ========== VERBETERDE LOCATIE NAAM FUNCTIE ==========
-// Checkt eerst user-defined locaties (van locaties.html), anders reverse geocoding
+// ========== VERBETERDE GPS FILTER FUNCTIE ==========
+function isValidPoint(prevPoint, currentPoint, nextPoint, isDriving) {
+  if(!prevPoint || !currentPoint) return true; // Eerste punt altijd toevoegen
+  
+  const distToPrev = getDistanceBetweenCoords(prevPoint.lat, prevPoint.lng, currentPoint.lat, currentPoint.lng) * 1000; // in meters
+  
+  // Rijden: max 200 meter in 10 seconden (72 km/u) is acceptabel
+  // Lopen: max 20 meter in 10 seconden (7.2 km/u) is acceptabel
+  const maxDist = isDriving ? 200 : 20;
+  
+  if(distToPrev > maxDist) {
+    // Check met volgend punt als dat bestaat
+    if(nextPoint) {
+      const distToNext = getDistanceBetweenCoords(currentPoint.lat, currentPoint.lng, nextPoint.lat, nextPoint.lng) * 1000;
+      const distPrevToNext = getDistanceBetweenCoords(prevPoint.lat, prevPoint.lng, nextPoint.lat, nextPoint.lng) * 1000;
+      
+      // Als het huidige punt een outlier is (ver van beide buren), sla het over
+      if(distToPrev > maxDist * 1.5 && distToNext > maxDist * 1.5) {
+        console.log(`GPS outlier gedetecteerd: ${distToPrev.toFixed(1)}m van vorig, ${distToNext.toFixed(1)}m van volgend`);
+        return false;
+      }
+    } else {
+      // Laatste punt: alleen check met vorige
+      if(distToPrev > maxDist * 2) {
+        console.log(`GPS outlier gedetecteerd (laatste punt): ${distToPrev.toFixed(1)}m van vorig`);
+        return false;
+      }
+    }
+  }
+  
+  return true;
+}
+
+// ========== LOCATIE NAAM FUNCTIE ==========
 async function getDetailedLocationName(lat, lng) {
-  // Eerst checken of er een user-defined locatie is (van locaties.html)
   const userDefinedLocations = JSON.parse(localStorage.getItem('userDefinedLocations') || '[]');
   for (const loc of userDefinedLocations) {
     const distance = getDistanceBetweenCoords(lat, lng, loc.lat, loc.lng);
     if (distance * 1000 <= loc.radius) {
-      console.log(`Locatie "${loc.name}" gevonden binnen ${loc.radius}m`);
       return loc.name;
     }
   }
   
-  // Anders de normale reverse geocoding
   return new Promise((resolve) => {
     fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`)
       .then(r => r.json()).then(data => {
@@ -194,15 +225,56 @@ if (window.DeviceMotionEvent) {
   });
 }
 
-// ========== GPS FUNCTIES ==========
-function processGpsPosition(p){if(!document.getElementById('trackingToggle')?.checked)return;if(gpsPaused)return;const now=Date.now(),np={lat:p.coords.latitude,lng:p.coords.longitude},sp=p.coords.speed?p.coords.speed*3.6:0;if(lastGpsPosition){const dist=Math.sqrt(Math.pow(np.lat-lastGpsPosition.lat,2)+Math.pow(np.lng-lastGpsPosition.lng,2))*111;if(dist<0.02){totalGpsDistance+=dist;if(sp>5||!isWalking)totalDrivingDistance+=dist;if(now-lastRoutePointTime>=10000){routePoints.push({lat:np.lat,lng:np.lng,type:isWalking?'walking':'driving',time:now});lastRoutePointTime=now;saveWorkState()}}}lastGpsPosition=np}
+// ========== GPS FUNCTIES MET VERBETERDE FILTER ==========
+function processGpsPosition(p){
+  if(!document.getElementById('trackingToggle')?.checked)return;
+  if(gpsPaused)return;
+  const now=Date.now();
+  const newPos={lat:p.coords.latitude,lng:p.coords.longitude};
+  const speed=p.coords.speed?p.coords.speed*3.6:0;
+  const isDriving = speed > 5; // Sneller dan 5 km/u = rijden
+  
+  if(lastGpsPosition){
+    const dist=Math.sqrt(Math.pow(newPos.lat-lastGpsPosition.lat,2)+Math.pow(newPos.lng-lastGpsPosition.lng,2))*111;
+    if(dist<0.02){
+      totalGpsDistance+=dist;
+      if(isDriving||!isWalking) totalDrivingDistance+=dist;
+      
+      // Elke 10 seconden een punt toevoegen
+      if(now-lastRoutePointTime>=10000){
+        // Voeg punt toe aan buffer
+        pointBuffer.push({...newPos, isDriving, speed, time: now});
+        // Houd alleen laatste 3 punten
+        if(pointBuffer.length > 3) pointBuffer.shift();
+        
+        // Check of het punt geldig is
+        let isValid = true;
+        if(pointBuffer.length >= 2) {
+          const prevPoint = pointBuffer[pointBuffer.length-2];
+          const nextPoint = pointBuffer.length >= 3 ? pointBuffer[pointBuffer.length-3] : null;
+          isValid = isValidPoint(prevPoint, newPos, nextPoint, isDriving);
+        }
+        
+        if(isValid) {
+          routePoints.push({lat:newPos.lat,lng:newPos.lng,type:isDriving?'driving':'walking',time:now,speed:speed});
+          lastRoutePointTime=now;
+          saveWorkState();
+        } else {
+          console.log('Punt overgeslagen door filter');
+        }
+      }
+    }
+  }
+  lastGpsPosition=newPos;
+}
+
 function startGeoLocation(){if(geoWatchId)return;if(!navigator.geolocation){document.getElementById('gpsStatusMsg').innerText='❌ GPS niet ondersteund';return}document.getElementById('gpsStatusMsg').innerText='📍 GPS actief';geoWatchId=navigator.geolocation.watchPosition(processGpsPosition,err=>{document.getElementById('gpsStatusMsg').innerText='❌ GPS fout'},{enableHighAccuracy:true,maximumAge:5000,timeout:15000})}
 function stopGeoLocation(){if(geoWatchId){navigator.geolocation.clearWatch(geoWatchId);geoWatchId=null}}
 document.getElementById('trackingToggle').onchange=e=>{if(e.target.checked){startGeoLocation();document.getElementById('gpsControls').style.display='flex'}else{stopGeoLocation();document.getElementById('gpsControls').style.display='none'}};
 document.getElementById('pauseGpsBtn').onclick=()=>{gpsPaused=true;document.getElementById('pauseGpsBtn').style.display='none';document.getElementById('resumeGpsBtn').style.display='block'};
 document.getElementById('resumeGpsBtn').onclick=()=>{gpsPaused=false;document.getElementById('pauseGpsBtn').style.display='block';document.getElementById('resumeGpsBtn').style.display='none'};
 
-// ========== STOP TOEVOEGEN MET VERBETERDE LOCATIE NAAM ==========
+// ========== STOP TOEVOEGEN ==========
 document.getElementById('addLocationBtn').onclick=async()=>{
   if(lastGpsPosition){
     const locName = await getDetailedLocationName(lastGpsPosition.lat, lastGpsPosition.lng);
@@ -221,7 +293,6 @@ document.getElementById('addLocationBtn').onclick=async()=>{
     renderStopsList();
     saveWorkState();
     
-    // Automatisch overschakelen naar werktijd als heenweg aan staat
     if(travelToRunning && !workRunning && !travelBackRunning){
       stopTravelTo();
       startWork();

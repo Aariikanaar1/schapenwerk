@@ -24,6 +24,7 @@
     input:checked + .slider:before { transform: translateX(22px); }
     .logo-preview { width: 60px; height: 60px; background: #f1f5f9; border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .flex-row { display: flex; gap: 12px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+    .section-title { margin-top: 24px; margin-bottom: 12px; font-size: 1.1rem; font-weight: 600; color: #0f2b3d; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
   </style>
 </head>
 <body>
@@ -47,32 +48,98 @@
     <button id="clearLogoBtn" class="btn-small">Verwijder</button>
   </div>
   
-  <h3 style="margin-top: 20px;">Functies</h3>
+  <div class="section-title">📱 Pagina's in menu</div>
+  <p style="font-size:0.75rem; color:#64748b; margin-bottom:12px;">Zet een pagina uit als je de functie niet gebruikt. Alle bestaande gegevens blijven bewaard.</p>
   
-  <div style="display:flex; justify-content:space-between; padding:12px 0;">
+  <div class="toggle-switch">
+    <span>🐑 Werkdag</span>
+    <label class="switch"><input type="checkbox" id="toggleWerkdag" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-switch">
+    <span>🏠 Privé rit</span>
+    <label class="switch"><input type="checkbox" id="togglePriveRit" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-switch">
+    <span>📋 Werkdagen</span>
+    <label class="switch"><input type="checkbox" id="toggleWerkdagen" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-switch">
+    <span>📍 Locaties beheren</span>
+    <label class="switch"><input type="checkbox" id="toggleLocaties" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-switch">
+    <span>👣 Stappenteller</span>
+    <label class="switch"><input type="checkbox" id="toggleStappenteller" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-switch">
     <span>📟 Kilometerregistratie</span>
+    <label class="switch"><input type="checkbox" id="toggleKilometerregistratie" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-switch">
+    <span>📇 Contacten</span>
+    <label class="switch"><input type="checkbox" id="toggleContacten" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-switch">
+    <span>📄 Facturen</span>
+    <label class="switch"><input type="checkbox" id="toggleFacturen" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-switch">
+    <span>💰 Factuur maken</span>
+    <label class="switch"><input type="checkbox" id="toggleFactuurMaken" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-switch">
+    <span>⚙️ Instellingen</span>
+    <label class="switch"><input type="checkbox" id="toggleInstellingen" checked><span class="slider"></span></label>
+  </div>
+  <div class="toggle-switch">
+    <span>💬 Feedback</span>
+    <label class="switch"><input type="checkbox" id="toggleFeedback" checked><span class="slider"></span></label>
+  </div>
+  
+  <div class="section-title">⚙️ Overige functies</div>
+  
+  <div class="toggle-switch">
+    <span>📟 Kilometerregistratie bijhouden</span>
     <label class="switch"><input type="checkbox" id="toggleKmReg" checked><span class="slider"></span></label>
   </div>
-  <div style="display:flex; justify-content:space-between; padding:12px 0;">
-    <span>👣 Stappenteller</span>
+  <div class="toggle-switch">
+    <span>👣 Stappenteller bijhouden</span>
     <label class="switch"><input type="checkbox" id="toggleStepCounter" checked><span class="slider"></span></label>
   </div>
-  <div style="display:flex; justify-content:space-between; padding:12px 0;">
+  <div class="toggle-switch">
     <span>🗺️ GPS tracking</span>
     <label class="switch"><input type="checkbox" id="toggleGps" checked><span class="slider"></span></label>
   </div>
-  <div style="display:flex; justify-content:space-between; padding:12px 0;">
+  <div class="toggle-switch">
     <span>🏠 Automatisch werkdag afsluiten bij thuiskomst</span>
     <label class="switch"><input type="checkbox" id="toggleAutoEndWorkday"><span class="slider"></span></label>
   </div>
-  <div style="display:flex; justify-content:space-between; padding:12px 0;">
-    <span>🔘 Snel activeren (drie keer klikken aan/uit)</span>
+  <div class="toggle-switch">
+    <span>🔘 Snel activeren (drie keer klikken aan/uit knop)</span>
     <label class="switch"><input type="checkbox" id="toggleQuickActivate"><span class="slider"></span></label>
+  </div>
+  
+  <div class="button-group" style="margin-top: 24px;">
+    <button id="saveSettingsBtn" class="btn-primary">💾 Instellingen opslaan</button>
   </div>
 </div>
 
 <script>
-function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+function showWarning(msg){ 
+  if(window.parent && window.parent.postMessage) {
+    window.parent.postMessage({type:'warning',message:msg},'*');
+  } else {
+    alert(msg);
+  }
+}
+
+// Alle toggle IDs
+const allToggles = [
+  'toggleWerkdag', 'togglePriveRit', 'toggleWerkdagen', 'toggleLocaties',
+  'toggleStappenteller', 'toggleKilometerregistratie', 'toggleContacten',
+  'toggleFacturen', 'toggleFactuurMaken', 'toggleInstellingen', 'toggleFeedback',
+  'toggleKmReg', 'toggleStepCounter', 'toggleGps', 'toggleAutoEndWorkday', 'toggleQuickActivate'
+];
 
 function loadSettings() {
   const fields = ['companyName', 'companyStreet', 'companyLocation', 'companyIban', 'companyKvk'];
@@ -81,11 +148,11 @@ function loadSettings() {
     if(val && document.getElementById(id)) document.getElementById(id).value = val;
   });
   
-  const toggles = ['toggleKmReg', 'toggleStepCounter', 'toggleGps', 'toggleAutoEndWorkday', 'toggleQuickActivate'];
-  toggles.forEach(id => {
+  allToggles.forEach(id => {
     const val = localStorage.getItem(id);
     if(val === 'true') document.getElementById(id).checked = true;
     else if(val === 'false') document.getElementById(id).checked = false;
+    else document.getElementById(id).checked = true; // standaard aan
   });
   
   const logo = localStorage.getItem('companyLogo');
@@ -98,13 +165,33 @@ function saveSettings() {
     localStorage.setItem(id, document.getElementById(id).value);
   });
   
-  const toggles = ['toggleKmReg', 'toggleStepCounter', 'toggleGps', 'toggleAutoEndWorkday', 'toggleQuickActivate'];
-  toggles.forEach(id => {
+  allToggles.forEach(id => {
     localStorage.setItem(id, document.getElementById(id).checked);
   });
   
   showWarning('✅ Instellingen opgeslagen!');
+  
+  // Stuur bericht naar hoofdpagina om menu te verversen
+  if(window.parent && window.parent.postMessage) {
+    window.parent.postMessage({type: 'refreshMenu'}, '*');
+  }
 }
+
+// Auto-save bij wijziging
+fields.forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    localStorage.setItem(id, document.getElementById(id).value);
+  });
+});
+
+allToggles.forEach(id => {
+  document.getElementById(id).addEventListener('change', () => {
+    localStorage.setItem(id, document.getElementById(id).checked);
+    if(id === 'toggleQuickActivate') {
+      showWarning(document.getElementById(id).checked ? '✅ Snel activeren aan' : '❌ Snel activeren uit');
+    }
+  });
+});
 
 document.getElementById('logoUpload').onchange = (e) => {
   const file = e.target.files[0];
@@ -126,18 +213,7 @@ document.getElementById('clearLogoBtn').onclick = () => {
   showWarning('🗑️ Logo verwijderd');
 };
 
-// Auto-save bij wijziging
-['companyName', 'companyStreet', 'companyLocation', 'companyIban', 'companyKvk'].forEach(id => {
-  document.getElementById(id).addEventListener('input', () => {
-    localStorage.setItem(id, document.getElementById(id).value);
-  });
-});
-
-['toggleKmReg', 'toggleStepCounter', 'toggleGps', 'toggleAutoEndWorkday', 'toggleQuickActivate'].forEach(id => {
-  document.getElementById(id).addEventListener('change', () => {
-    localStorage.setItem(id, document.getElementById(id).checked);
-  });
-});
+document.getElementById('saveSettingsBtn').onclick = saveSettings;
 
 loadSettings();
 </script>

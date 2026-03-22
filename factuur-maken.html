@@ -166,12 +166,37 @@ function loadInvoiceWorkdays() {
   if(!currentClient) return;
   currentYear = parseInt(document.getElementById('invoiceYearInput').value);
   currentMonth = parseInt(document.getElementById('invoiceMonthSelect').value);
+  
   const sessions = JSON.parse(localStorage.getItem('workSessionsList')||'[]');
+  console.log('Alle werkdagen:', sessions.length);
+  console.log('Filter op maand:', currentMonth, 'jaar:', currentYear);
+  console.log('Klantnaam zoeken:', currentClient.name, currentClient.company);
+  
   currentInvoiceWorkdays = sessions.filter(s => {
+    if(!s.startWorkdayTime) return false;
     const d = new Date(s.startWorkdayTime);
-    return d.getMonth() === currentMonth && d.getFullYear() === currentYear && 
-           (s.client || '').toLowerCase().includes((currentClient.name || currentClient.company || '').toLowerCase());
+    const sessionClient = (s.client || '').toLowerCase();
+    const clientName = (currentClient.name || '').toLowerCase();
+    const clientCompany = (currentClient.company || '').toLowerCase();
+    
+    const monthMatch = d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    const clientMatch = sessionClient.includes(clientName) || sessionClient.includes(clientCompany);
+    
+    if(monthMatch && clientMatch) {
+      console.log('Gevonden werkdag:', d.toLocaleDateString(), s.client);
+    }
+    return monthMatch && clientMatch;
   });
+  
+  console.log('Gefilterde werkdagen:', currentInvoiceWorkdays.length);
+  
+  if(currentInvoiceWorkdays.length === 0) {
+    alert('Geen werkdagen gevonden voor deze opdrachtgever in de geselecteerde periode.\n\nControleer:\n- Of er werkdagen zijn in deze maand\n- Of de opdrachtgever correct is ingevuld bij de werkdagen');
+    document.getElementById('invoiceEditor').innerHTML = '<p style="color:#dc2626;">⚠️ Geen werkdagen gevonden in deze periode</p>';
+    document.getElementById('step2').style.display = 'block';
+    return;
+  }
+  
   renderInvoiceEditor();
   document.getElementById('step2').style.display = 'block';
   document.getElementById('step3').style.display = 'none';
@@ -180,17 +205,24 @@ function loadInvoiceWorkdays() {
 
 function renderInvoiceEditor() {
   const container = document.getElementById('invoiceEditor');
-  if(!currentInvoiceWorkdays.length) { container.innerHTML = '<p>Geen werkdagen gevonden in deze periode</p>'; return; }
-  container.innerHTML = currentInvoiceWorkdays.map((day, idx) => `
-    <div class="invoice-row">
-      <input type="checkbox" id="include_${idx}" checked style="width:30px;">
-      <span style="min-width:90px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</span>
-      <input type="number" id="hours_${idx}" value="${(day.workSeconds/3600).toFixed(2)}" step="0.25" style="width:70px;"><span>uur</span>
-      <input type="number" id="km_${idx}" value="${(day.totalDrivingKm || 0).toFixed(1)}" step="0.1" style="width:70px;"><span>km</span>
-      <input type="number" id="rate_${idx}" value="${(day.hourlyRate || HOURLY_RATE).toFixed(2)}" step="0.5" style="width:80px;"><span>€/uur</span>
-      <button onclick="removeWorkday(${idx})" class="btn-small" style="background:#ef4444;">✖</button>
-    </div>
-  `).join('');
+  if(!currentInvoiceWorkdays.length) { 
+    container.innerHTML = '<p>Geen werkdagen gevonden in deze periode</p>'; 
+    return; 
+  }
+  container.innerHTML = currentInvoiceWorkdays.map((day, idx) => {
+    const date = new Date(day.startWorkdayTime);
+    const dateStr = isNaN(date.getTime()) ? 'Datum onbekend' : formatDateToDutch(date);
+    return `
+      <div class="invoice-row">
+        <input type="checkbox" id="include_${idx}" checked style="width:30px;">
+        <span style="min-width:100px;">${dateStr}</span>
+        <input type="number" id="hours_${idx}" value="${(day.workSeconds/3600).toFixed(2)}" step="0.25" style="width:70px;"><span>uur</span>
+        <input type="number" id="km_${idx}" value="${(day.totalDrivingKm || 0).toFixed(1)}" step="0.1" style="width:70px;"><span>km</span>
+        <input type="number" id="rate_${idx}" value="${(day.hourlyRate || HOURLY_RATE).toFixed(2)}" step="0.5" style="width:80px;"><span>€/uur</span>
+        <button onclick="removeWorkday(${idx})" class="btn-small" style="background:#ef4444;">✖</button>
+      </div>
+    `;
+  }).join('');
 }
 window.removeWorkday = (idx) => {
   currentInvoiceWorkdays.splice(idx, 1);
@@ -245,9 +277,10 @@ function generatePreview() {
     const kmAmt = km * KM_RATE;
     const sub = workAmt + kmAmt;
     total += sub;
-    rows += ` 5美金<td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))} 5美金<td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')} 5美金<td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)} uur 5美金<td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">${km.toFixed(1)} km 5美金<td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)} 5美金`;
+    const dateStr = formatDateToDutch(new Date(day.startWorkdayTime));
+    rows += ` 5美金<td style="border:1px solid #000; padding:8px;">${dateStr} 5美金<td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')} 5美金<td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)} uur 5美金<td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">${km.toFixed(1)} km 5美金<td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)} 5美金`;
     if(secretMode) {
-      detailedRows += ` 5美金<td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))} 5美金<td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')} 5美金<td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${rate.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">${km.toFixed(1)} 5美金<td style="border:1px solid #000; padding:8px;">€${KM_RATE.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)} 5美金`;
+      detailedRows += ` 5美金<td style="border:1px solid #000; padding:8px;">${dateStr} 5美金<td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')} 5美金<td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${rate.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">${km.toFixed(1)} 5美金<td style="border:1px solid #000; padding:8px;">€${KM_RATE.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)} 5美金`;
     }
   });
   
@@ -292,7 +325,7 @@ function generatePreview() {
       <table border="1" cellpadding="5" style="width:100%; border-collapse:collapse;">
         <thead> 5美金<th>Datum</th><th>Omschrijving</th><th>Uren</th><th>Uurloon</th><th>Bedrag werk</th><th>KM</th><th>KM vergoeding</th><th>Totaal</th> 5美金</thead>
         <tbody>${detailedRows}</tbody>
-        <tfoot> 5美金<td colspan="7" align="right"><strong>Totaal</strong> 5美金<td><strong>€${total.toFixed(2)}</strong> 5美金</tfoot>
+        <tfoot> 5美金<td colspan="7" align="right"><strong>Totaal</strong> 5美金<td style="text-align:right"><strong>€${total.toFixed(2)}</strong> 5美金</tfoot>
       5美金
     </div>`;
   } else {
@@ -307,9 +340,9 @@ function generatePreview() {
         <thead> 5美金<th>Datum</th><th>Omschrijving</th><th>Uren</th><th>Bedrag werk</th><th>KM</th><th>KM vergoeding</th><th>Totaal</th> 5美金</thead>
         <tbody>${rows}</tbody>
         <tfoot>
-          5美金<td colspan="6" align="right"><strong>Totaal excl. BTW</strong> 5美金<td><strong>€${total.toFixed(2)}</strong> 5美金
-          5美金<td colspan="6" align="right">BTW (${vat}%) 5美金<td><strong>€${btw.toFixed(2)}</strong> 5美金
-          5美金<td colspan="6" align="right"><strong>Totaal incl. BTW</strong> 5美金<td><strong>€${grand.toFixed(2)}</strong> 5美金
+          5美金<td colspan="6" align="right"><strong>Totaal excl. BTW</strong> 5美金<td style="text-align:right"><strong>€${total.toFixed(2)}</strong> 5美金
+          5美金<td colspan="6" align="right">BTW (${vat}%) 5美金<td style="text-align:right"><strong>€${btw.toFixed(2)}</strong> 5美金
+          5美金<td colspan="6" align="right"><strong>Totaal incl. BTW</strong> 5美金<td style="text-align:right"><strong>€${grand.toFixed(2)}</strong> 5美金
         </tfoot>
       5美金
       ${footerText ? `<p>${footerText}</p>` : ''}
@@ -320,7 +353,7 @@ function generatePreview() {
   document.getElementById('invoicePreviewContainer').innerHTML = html;
   document.getElementById('step2').style.display = 'none';
   document.getElementById('step3').style.display = 'block';
-  document.getElementById('invoiceFilename').value = `factuur_${(currentClient.name || currentClient.company).replace(/[^a-z0-9]/gi, '_')}_${currentYear}_${currentMonth+1}.pdf`;
+  document.getElementById('invoiceFilename').value = `factuur_${(currentClient.name || currentClient.company || 'onbekend').replace(/[^a-z0-9]/gi, '_')}_${currentYear}_${currentMonth+1}.pdf`;
 }
 
 function saveInvoiceToStorage() {
@@ -346,6 +379,7 @@ function downloadOnly() {
   if(element) {
     html2pdf().set({ margin: 0.5, filename: filename }).from(element).save();
     saveInvoiceToStorage();
+    showWarning('✅ Factuur gedownload en opgeslagen');
   }
 }
 

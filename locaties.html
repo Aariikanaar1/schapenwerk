@@ -93,7 +93,7 @@ function showWarning(msg){
   }
 }
 function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
-function getDistanceBetweenCoords(l1,ln1,l2,ln2){ const R=6371,dLat=(l2-l1)*Math.PI/180,dLon=(ln2-ln1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(l1*Math.PI/180)*Math.cos(l2*Math.PI/180)*Math.sin(dLon/2)**2,c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); return R*c; }
+function getDistanceBetweenCoords(l1,ln1,l2,ln2){ const R=6371,dLat=(l2-l1)*Math.PI/180,dLon=(ln2-ln1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(l1*Math.PI/180)*Math.cos(l2*Math.PI/180)*Math.sin(dLon/2)**2,c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));return R*c; }
 function getContactDisplayName(c){ return c.company?.trim() || c.name || 'Onbekend'; }
 
 function loadContacts() {
@@ -180,7 +180,6 @@ function updateAllStopsWithLocationNames() {
               if(loc.name !== stop.location) { 
                 stop.location = loc.name; 
                 updated = true;
-                console.log(`Stop bij ${stop.lat},${stop.lng} hernoemd naar "${loc.name}"`);
               }
               break;
             }
@@ -197,11 +196,24 @@ function updateAllStopsWithLocationNames() {
 function renderLocationsManager() {
   const container = document.getElementById('locationsManageContainer');
   if(!container) return;
-  if(!userDefinedLocations.length) { 
-    container.innerHTML = '<div class="card" style="background:#f8fafc;">📭 Nog geen locaties toegevoegd.</div>'; 
+  
+  let filteredLocations = userDefinedLocations;
+  if(currentFilterClient !== 'all') {
+    filteredLocations = userDefinedLocations.filter(loc => loc.clientId == currentFilterClient);
+  }
+  
+  if(!filteredLocations.length) { 
+    if(userDefinedLocations.length > 0 && currentFilterClient !== 'all') {
+      const client = contacts.find(c => c.id == currentFilterClient);
+      container.innerHTML = `<div class="card" style="background:#f8fafc;">📭 Geen locaties voor ${client ? getContactDisplayName(client) : 'deze opdrachtgever'}</div>`;
+    } else {
+      container.innerHTML = '<div class="card" style="background:#f8fafc;">📭 Nog geen locaties toegevoegd.</div>';
+    }
     return; 
   }
-  container.innerHTML = userDefinedLocations.map((loc, idx) => {
+  
+  container.innerHTML = filteredLocations.map((loc, idx) => {
+    const originalIdx = userDefinedLocations.findIndex(l => l.id === loc.id);
     const client = contacts.find(c => c.id == loc.clientId);
     const clientName = client ? getContactDisplayName(client) : 'Geen';
     return `
@@ -209,8 +221,8 @@ function renderLocationsManager() {
         <div class="location-name">📍 ${escapeHtml(loc.name)}</div>
         <div class="location-coords">👤 ${escapeHtml(clientName)} | 📌 ${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} | 📏 Straal: ${loc.radius}m</div>
         <div class="button-group">
-          <button onclick="editLocation(${idx})" class="btn-small" style="background:#f59e0b;">✏️ Bewerken</button>
-          <button onclick="deleteLocation(${idx})" class="btn-small" style="background:#ef4444;">🗑️ Verwijderen</button>
+          <button onclick="editLocation(${originalIdx})" class="btn-small" style="background:#f59e0b;">✏️ Bewerken</button>
+          <button onclick="deleteLocation(${originalIdx})" class="btn-small" style="background:#ef4444;">🗑️ Verwijderen</button>
         </div>
       </div>
     `;
@@ -236,6 +248,7 @@ window.deleteLocation = (idx) => {
 function applyFilter() {
   currentFilterClient = document.getElementById('clientFilterSelect').value;
   updateMapMarkers();
+  renderLocationsManager();
   showWarning(`🔍 Filter toegepast`);
 }
 
@@ -291,7 +304,7 @@ saveNewLocationBtn.onclick = () => {
   if(!name) { showWarning('❌ Vul een naam in'); return; }
   if(isNaN(lat)) { showWarning('❌ Vul een geldige breedtegraad in'); return; }
   if(isNaN(lng)) { showWarning('❌ Vul een geldige lengtegraad in'); return; }
-  userDefinedLocations.push({ name, lat, lng, radius, clientId: clientId || null });
+  userDefinedLocations.push({ id: Date.now(), name, lat, lng, radius, clientId: clientId || null });
   saveUserLocations();
   addLocationForm.style.display = 'none';
   showAddLocationFormBtn.style.display = 'block';
