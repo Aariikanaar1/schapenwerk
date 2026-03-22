@@ -1,4 +1,4 @@
-const CACHE_NAME = 'schapenwerk-v4.8';
+const CACHE_NAME = 'schapenwerk-v6.0';
 const urlsToCache = [
   '/schapenwerk/',
   '/schapenwerk/index.html',
@@ -13,55 +13,79 @@ const urlsToCache = [
   '/schapenwerk/instellingen.html',
   '/schapenwerk/feedback.html',
   '/schapenwerk/privé-rit.html',
-  '/schapenwerk/manifest.json',
-  '/schapenwerk/version.json'
+  '/schapenwerk/manifest.json'
 ];
 
+// Install event - cache alle bestanden
 self.addEventListener('install', event => {
+  console.log('[Service Worker] Installing');
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
+      console.log('[Service Worker] Caching app files');
       return cache.addAll(urlsToCache);
     })
   );
   self.skipWaiting();
 });
 
+// Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(event.request).then(response => {
-      return response || fetch(event.request);
+      if (response) {
+        return response;
+      }
+      return fetch(event.request).then(response => {
+        if (!response || response.status !== 200 || response.type !== 'basic') {
+          return response;
+        }
+        const responseToCache = response.clone();
+        caches.open(CACHE_NAME).then(cache => {
+          cache.put(event.request, responseToCache);
+        });
+        return response;
+      });
     })
   );
 });
 
+// Activate event - clean up old caches
 self.addEventListener('activate', event => {
+  console.log('[Service Worker] Activating');
   event.waitUntil(
-    caches.keys().then(keys => {
+    caches.keys().then(cacheNames => {
       return Promise.all(
-        keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
+        cacheNames.map(cacheName => {
+          if (cacheName !== CACHE_NAME) {
+            console.log('[Service Worker] Deleting old cache:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
       );
     })
   );
   self.clients.claim();
-  
-  // Stuur bericht naar alle clients dat er een update is
-  event.waitUntil(
-    self.clients.matchAll().then(clients => {
-      clients.forEach(client => {
-        client.postMessage({ type: 'UPDATE_AVAILABLE', version: CACHE_NAME });
-      });
-    })
-  );
 });
 
-// Check voor nieuwe versies
-self.addEventListener('message', event => {
-  if (event.data === 'checkForUpdate') {
-    self.skipWaiting();
-    self.clients.matchAll().then(clients => {
-      clients.forEach(client => {
-        client.postMessage({ type: 'UPDATE_AVAILABLE', version: CACHE_NAME });
-      });
-    });
+// Background sync voor timers
+self.addEventListener('sync', event => {
+  console.log('[Service Worker] Sync event:', event.tag);
+  if (event.tag === 'sync-timers') {
+    event.waitUntil(syncTimers());
+  }
+});
+
+async function syncTimers() {
+  const clients = await self.clients.matchAll();
+  clients.forEach(client => {
+    client.postMessage({ type: 'SYNC_TIMERS' });
+  });
+}
+
+// Periodieke background sync (als ondersteund)
+self.addEventListener('periodicsync', event => {
+  console.log('[Service Worker] Periodic sync:', event.tag);
+  if (event.tag === 'timer-sync') {
+    event.waitUntil(syncTimers());
   }
 });

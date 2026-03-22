@@ -1,16 +1,53 @@
 {
-  "name": "Schapenwerk",
+  "name": "Schapenwerk - Uren & Kilometerregistratie",
   "short_name": "Schapenwerk",
-  "description": "Uren & Kilometervergoeding voor zzp'ers",
+  "description": "Registreer werkuren, kilometers en maak facturen voor ZZP'ers",
   "start_url": "/schapenwerk/index.html",
   "display": "standalone",
   "background_color": "#0077cc",
   "theme_color": "#0077cc",
   "orientation": "portrait",
+  "scope": "/schapenwerk/",
   "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230077cc'/%3E%3Ctext x='50' y='67' font-size='50' text-anchor='middle' fill='white' font-family='monospace'%3E🐑%3C/text%3E%3C/svg%3E",
+    "sizes": "any",
+    "type": "image/svg+xml",
+    "purpose": "any maskable"
+    },
+    {
+      "src": "https://aariikanaar1.github.io/schapenwerk/icon-96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://aariikanaar1.github.io/schapenwerk/icon-128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://aariikanaar1.github.io/schapenwerk/icon-144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://aariikanaar1.github.io/schapenwerk/icon-152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
     {
       "src": "https://aariikanaar1.github.io/schapenwerk/icon-192.png",
       "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://aariikanaar1.github.io/schapenwerk/icon-384.png",
+      "sizes": "384x384",
       "type": "image/png",
       "purpose": "any maskable"
     },

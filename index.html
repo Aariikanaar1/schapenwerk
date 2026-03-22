@@ -32,6 +32,8 @@
     .warning-toast { position: fixed; bottom: 100px; left: 16px; right: 16px; background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px; border-radius: 16px; font-size: 0.75rem; color: #92400e; z-index: 200; display: none; }
     .update-toast { position: fixed; top: 0; left: 0; right: 0; background: #10b981; color: white; padding: 12px 16px; text-align: center; font-size: 14px; z-index: 2000; display: none; }
     .update-toast button { background: white; color: #10b981; margin-left: 12px; padding: 6px 16px; border-radius: 40px; border: none; font-weight: 600; cursor: pointer; }
+    .install-toast { position: fixed; bottom: 20px; left: 16px; right: 16px; background: #0077cc; color: white; padding: 12px 16px; border-radius: 20px; font-size: 14px; z-index: 2000; display: none; text-align: center; }
+    .install-toast button { background: white; color: #0077cc; margin-left: 12px; padding: 6px 16px; border-radius: 40px; border: none; font-weight: 600; cursor: pointer; }
     iframe { width: 100%; height: calc(100vh - 70px); border: none; background: #f5f7fb; }
     .loading { text-align: center; padding: 50px; color: #64748b; }
   </style>
@@ -42,14 +44,20 @@
   <span>🔄 Nieuwe versie beschikbaar!</span>
   <button id="updateNowBtn">Update nu</button>
 </div>
+
+<div id="installToast" class="install-toast">
+  <span>📱 Installeer Schapenwerk als app voor snelle toegang!</span>
+  <button id="installAppBtn">Installeren</button>
+</div>
+
 <div class="warning-toast" id="warningToast"></div>
 <button class="menu-toggle" id="menuToggleBtn">☰</button>
 <div class="menu-overlay" id="menuOverlay"></div>
 
 <div class="side-menu" id="sideMenu">
-  <div class="menu-header"><h2>🐑 Schapenwerk</h2></div>
+  <div class="menu-header"><h2>🐑 Schapenwerk</h2><p>Uren & kilometerregistratie</p></div>
   <div class="menu-items" id="menuItemsContainer"></div>
-  <div class="menu-footer"><span id="versionFooter">v5.1</span></div>
+  <div class="menu-footer"><span id="versionFooter">v6.0</span><br><span style="font-size:9px;">📱 Installeer als app</span></div>
 </div>
 
 <main id="mainContent">
@@ -59,8 +67,47 @@
 </main>
 
 <script>
+// ========== PWA INSTALLATIE ==========
+let deferredPrompt;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  console.log('beforeinstallprompt fired');
+  e.preventDefault();
+  deferredPrompt = e;
+  
+  // Toon installatie toast
+  const installToast = document.getElementById('installToast');
+  if(installToast) {
+    installToast.style.display = 'block';
+    setTimeout(() => {
+      if(installToast.style.display === 'block') {
+        installToast.style.display = 'none';
+      }
+    }, 10000);
+  }
+});
+
+document.getElementById('installAppBtn')?.addEventListener('click', async () => {
+  if(!deferredPrompt) return;
+  
+  deferredPrompt.prompt();
+  const { outcome } = await deferredPrompt.userChoice;
+  console.log(`User response to the install prompt: ${outcome}`);
+  deferredPrompt = null;
+  
+  const installToast = document.getElementById('installToast');
+  if(installToast) installToast.style.display = 'none';
+});
+
+// Check of app al geïnstalleerd is
+window.addEventListener('appinstalled', () => {
+  console.log('App installed successfully');
+  showWarning('✅ Schapenwerk is geïnstalleerd! Je vindt het op je startscherm.');
+  const installToast = document.getElementById('installToast');
+  if(installToast) installToast.style.display = 'none';
+});
+
 // ========== BACKGROUND TIMER SUPPORT ==========
-// Zorg dat de pagina niet in slaap valt en timers blijven lopen
 let wakeLock = null;
 
 async function requestWakeLock() {
@@ -78,7 +125,6 @@ function releaseWakeLock() {
   }
 }
 
-// Vraag wake lock aan als er een timer actief is
 setInterval(() => {
   const werkState = localStorage.getItem('werkState');
   if(werkState) {
@@ -145,39 +191,65 @@ window.addEventListener('message', (event) => {
   }
 });
 
-// ========== UPDATE DETECTIE ==========
-let updateToast = document.getElementById('updateToast');
-let updateNowBtn = document.getElementById('updateNowBtn');
-let swRegistration = null;
-
+// ========== SERVICE WORKER ==========
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/schapenwerk/sw.js')
     .then(registration => {
-      swRegistration = registration;
+      console.log('Service Worker registered with scope:', registration.scope);
+      
+      // Check voor updates
       registration.update();
       setInterval(() => { registration.update(); }, 60 * 60 * 1000);
+      
+      // Background sync registreren
+      if('sync' in registration) {
+        registration.sync.register('sync-timers').then(() => {
+          console.log('Background sync registered');
+        }).catch(err => console.log('Background sync error:', err));
+      }
+      
+      // Periodic background sync (indien ondersteund)
+      if('periodicSync' in registration) {
+        navigator.permissions.query({ name: 'periodic-background-sync' }).then(permissionStatus => {
+          if(permissionStatus.state === 'granted') {
+            registration.periodicSync.register('timer-sync', {
+              minInterval: 15 * 60 * 1000 // elke 15 minuten
+            }).then(() => {
+              console.log('Periodic background sync registered');
+            });
+          }
+        });
+      }
     })
     .catch(err => console.log('Service Worker fout:', err));
   
   navigator.serviceWorker.addEventListener('message', event => {
     if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
-      updateToast.style.display = 'block';
-      setTimeout(() => { if (updateToast.style.display === 'block') updateToast.style.display = 'none'; }, 10000);
+      const updateToast = document.getElementById('updateToast');
+      if(updateToast) {
+        updateToast.style.display = 'block';
+        setTimeout(() => { 
+          if(updateToast.style.display === 'block') updateToast.style.display = 'none';
+        }, 10000);
+      }
+    }
+    
+    if (event.data && event.data.type === 'SYNC_TIMERS') {
+      console.log('Background sync triggered timer update');
+      // Stuur bericht naar de iframe om timers te updaten
+      const iframe = document.querySelector('#pageFrame');
+      if(iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage({ type: 'SYNC_TIMERS' }, '*');
+      }
     }
   });
 }
 
-if (updateNowBtn) {
-  updateNowBtn.onclick = () => {
-    updateToast.style.display = 'none';
-    if (swRegistration && swRegistration.waiting) {
-      swRegistration.waiting.postMessage('skipWaiting');
-      window.location.reload();
-    } else {
-      window.location.reload();
-    }
-  };
-}
+document.getElementById('updateNowBtn')?.addEventListener('click', () => {
+  const updateToast = document.getElementById('updateToast');
+  if(updateToast) updateToast.style.display = 'none';
+  window.location.reload();
+});
 
 // ========== DRIE KEER KLIKKEN ==========
 let powerPressCount = 0;
@@ -214,10 +286,15 @@ const pageContainer = document.getElementById('pageContainer');
 const warningToast = document.getElementById('warningToast');
 
 function showWarning(m) { 
-  warningToast.innerHTML = m; 
-  warningToast.style.display = 'block'; 
-  setTimeout(() => { warningToast.style.display = 'none'; }, 4000); 
+  if(warningToast) {
+    warningToast.innerHTML = m; 
+    warningToast.style.display = 'block'; 
+    setTimeout(() => { warningToast.style.display = 'none'; }, 4000); 
+  } else {
+    alert(m);
+  }
 }
+
 function closeMenu() { sideMenu.classList.remove('open'); menuOverlay.style.display = 'none'; }
 function openMenu() { sideMenu.classList.add('open'); menuOverlay.style.display = 'block'; }
 menuToggle.onclick = () => sideMenu.classList.contains('open') ? closeMenu() : openMenu();
@@ -241,18 +318,22 @@ const pages = {
 function loadPage(pageId) {
   const pageFile = pages[pageId];
   if(!pageFile) { pageContainer.innerHTML = '<div class="loading">❌ Pagina niet gevonden</div>'; return; }
-  pageContainer.innerHTML = `<iframe id="pageFrame" src="${pageFile}" title="${pageId}"></iframe>`;
+  pageContainer.innerHTML = `<iframe id="pageFrame" src="${pageFile}" title="${pageId}" allow="geolocation; accelerometer;"></iframe>`;
   localStorage.setItem('lastPage', pageId);
-  
-  window.addEventListener('message', (event) => {
-    if(event.data && event.data.type === 'warning') showWarning(event.data.message);
-  });
 }
+
+// Berichten van iframe afhandelen
+window.addEventListener('message', (event) => {
+  if(event.data && event.data.type === 'warning') showWarning(event.data.message);
+  if(event.data && event.data.type === 'SYNC_TIMERS') {
+    console.log('Timer sync requested from iframe');
+  }
+});
 
 const lastPage = localStorage.getItem('lastPage') || 'werkdag';
 loadPage(lastPage);
 renderMenu();
-document.getElementById('versionFooter').innerHTML = 'v5.1<br><span style="font-size:9px;">Achtergrond timers</span>';
+document.getElementById('versionFooter').innerHTML = 'v6.0<br><span style="font-size:9px;">📱 Installeer als app</span>';
 </script>
 </body>
 </html>
