@@ -37,10 +37,9 @@
     .invoice-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
     .filename-input { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
     .filename-input input { flex: 2; margin-top: 0; }
-    .invoice-footer-note { margin-top: 16px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 0.7rem; color: #64748b; text-align: center; }
     .no-contacts-warning { background: #fef3c7; padding: 12px; border-radius: 16px; margin-top: 12px; font-size: 0.8rem; color: #92400e; display: none; }
     .contact-count { font-size: 0.7rem; color: #64748b; margin-top: 5px; }
-    .secret-mode-buttons { display: flex; gap: 10px; margin-top: 15px; }
+    .secret-mode-buttons { display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -119,15 +118,17 @@
   </div>
   <div class="font-settings">
     <select id="fontContentSelect">
-      <option value="'Inter', sans-serif">Inter</option><option value="'Bahnschrift'">Bahnschrift</option>
-      <option value="'Times New Roman'">Times New Roman</option><option value="'Georgia'">Georgia</option>
-      <option value="'Verdana'">Verdana</option><option value="'Arial'">Arial</option>
-      <option value="'Courier New'">Courier New</option><option value="'Trebuchet MS'">Trebuchet MS</option>
-      <option value="'Tahoma'">Tahoma</option><option value="'Century Gothic'">Century Gothic</option>
-      <option value="'Garamond'">Garamond</option><option value="'Palatino'">Palatino</option>
-      <option value="'Book Antiqua'">Book Antiqua</option><option value="'Lucida Sans'">Lucida Sans</option>
-      <option value="'Segoe UI'">Segoe UI</option><option value="'Roboto'">Roboto</option><option value="'Open Sans'">Open Sans</option>
-      <option value="'Lato'">Lato</option><option value="'Montserrat'">Montserrat</option><option value="'Poppins'">Poppins</option><option value="'sans-serif'">Standaard</option>
+      <option value="Inter, sans-serif">Inter</option><option value="Bahnschrift">Bahnschrift</option>
+      <option value="Times New Roman">Times New Roman</option><option value="Georgia">Georgia</option>
+      <option value="Verdana">Verdana</option><option value="Arial">Arial</option>
+      <option value="Courier New">Courier New</option><option value="Trebuchet MS">Trebuchet MS</option>
+      <option value="Tahoma">Tahoma</option><option value="Century Gothic">Century Gothic</option>
+      <option value="Garamond">Garamond</option><option value="Palatino">Palatino</option>
+      <option value="Book Antiqua">Book Antiqua</option><option value="Lucida Sans">Lucida Sans</option>
+      <option value="Segoe UI">Segoe UI</option><option value="Roboto">Roboto</option>
+      <option value="Open Sans">Open Sans</option><option value="Lato">Lato</option>
+      <option value="Montserrat">Montserrat</option><option value="Poppins">Poppins</option>
+      <option value="sans-serif">Standaard</option>
     </select>
     <select id="fontContentSize"><option value="10">10px</option><option value="11">11px</option><option value="12" selected>12px</option><option value="14">14px</option><option value="16">16px</option></select>
     <span>📌 Inhoud</span>
@@ -149,7 +150,7 @@
       <button id="downloadSecretBtn" class="btn-warning">🔒 Download uitgeklede factuur</button>
       <button id="downloadExplanationBtn" class="btn-secondary">📋 Download toelichting</button>
     </div>
-    <div class="invoice-actions">
+    <div class="invoice-actions" id="normalModeButtons">
       <button id="downloadOnlyBtn" class="btn-success">📥 Alleen downloaden</button>
       <button id="sendOnlyBtn" class="btn-warning">📧 Alleen versturen</button>
       <button id="downloadAndSendBtn" class="btn-primary">📥📧 Downloaden & versturen</button>
@@ -175,6 +176,9 @@ let currentYear = 2026;
 let currentMonth = 0;
 let currentClient = null;
 let currentSecretModeActive = false;
+let currentTotalKm = 0;
+let currentKmCompensation = 0;
+let currentVat = 21;
 
 // ========== HULPFUNCTIES ==========
 function showWarning(msg){ 
@@ -372,7 +376,7 @@ function generatePreview() {
     return; 
   }
 
-  const vat = parseFloat(document.getElementById('vatPercentage').value);
+  currentVat = parseFloat(document.getElementById('vatPercentage').value);
   const secretMode = document.getElementById('secretModeToggle').checked;
   currentSecretModeActive = secretMode;
 
@@ -401,6 +405,7 @@ function generatePreview() {
   let totalWork = 0, totalKm = 0, totalHours = 0;
   let rows = '';
   let explanationRows = '';
+  let kmPerDay = [];
 
   currentInvoiceWorkdays.forEach((day, idx) => {
     const include = document.getElementById(`include_${idx}`)?.checked;
@@ -416,9 +421,12 @@ function generatePreview() {
     totalWork += workAmt;
     totalKm += km;
     totalHours += hours;
+    
+    // Opslaan voor uitgeklede factuur
+    kmPerDay.push({ date: formatDateToDutch(new Date(day.startWorkdayTime)), km: km, desc: desc });
 
     rows += `
-        <tr style="font-family:${contentFont};">
+        <tr style="font-family: '${contentFont}'; font-size: ${contentSize};">
           <td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td>
           <td style="border:1px solid #000; padding:8px;">${escapeHtml(desc)}</td>
           <td style="border:1px solid #000; padding:8px; text-align:right;">${km.toFixed(1)}</td>
@@ -427,7 +435,7 @@ function generatePreview() {
         </tr>`;
 
     explanationRows += `
-        <tr style="font-family:${contentFont};">
+        <tr style="font-family: '${contentFont}'; font-size: ${contentSize};">
           <td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td>
           <td style="border:1px solid #000; padding:8px;">${escapeHtml(desc)}</td>
           <td style="border:1px solid #000; padding:8px; text-align:right;">${hours.toFixed(2)}</td>
@@ -438,7 +446,7 @@ function generatePreview() {
     if(line.amount && line.amount !== 0) {
       totalWork += line.amount;
       rows += `
-        <tr style="font-family:${contentFont};">
+        <tr style="font-family: '${contentFont}'; font-size: ${contentSize};">
           <td style="border:1px solid #000; padding:8px;">${line.date || ''}</td>
           <td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)}</td>
           <td style="border:1px solid #000; padding:8px;">-</td>
@@ -446,7 +454,7 @@ function generatePreview() {
           <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${line.amount.toFixed(2)}</td>
         </tr>`;
       explanationRows += `
-        <tr style="font-family:${contentFont};">
+        <tr style="font-family: '${contentFont}'; font-size: ${contentSize};">
           <td style="border:1px solid #000; padding:8px;">${line.date || ''}</td>
           <td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)}</td>
           <td style="border:1px solid #000; padding:8px;">-</td>
@@ -454,16 +462,17 @@ function generatePreview() {
     }
   });
 
-  const kmCompensation = totalKm * KM_RATE;
-  const subtotal = totalWork + kmCompensation;
-  const btw = subtotal * (vat / 100);
+  currentKmCompensation = totalKm * KM_RATE;
+  currentTotalKm = totalKm;
+  const subtotal = totalWork + currentKmCompensation;
+  const btw = subtotal * (currentVat / 100);
   const grand = subtotal + btw;
 
   currentInvoiceNumber = `F${currentYear}${(currentMonth+1).toString().padStart(2,'0')}${Math.floor(Math.random() * 1000)}`;
   const invoiceDate = formatDateToDutch(new Date());
   currentTotal = grand;
 
-  // Adressen - zonder slash, meer ruimte
+  // Adressen - elk de helft van de breedte
   const companyDisplay = company.name || '';
   const companyContact = company.contactName || '';
   const companyAddressLines = [];
@@ -478,37 +487,37 @@ function generatePreview() {
   if(currentClient.city) clientAddressLines.push(currentClient.city);
   const clientAddress = clientAddressLines.join(', ');
 
-  // NORMALE FACTUUR
+  // NORMALE FACTUUR - met 50/50 breedte en zonder betaaltermijn
   currentNormalHTML = `
-  <div id="invoiceToPrint" style="font-family:${contentFont}; font-size:${contentSize}px; max-width:1000px; margin:0 auto; padding:20px;">
+  <div id="invoiceToPrint" style="font-family: '${contentFont}'; font-size: ${contentSize}; max-width:1000px; margin:0 auto; padding:20px;">
     ${logoHtml}
-    ${headerText ? `<div style="font-family:${headerFont}; font-size:${headerSize}px; margin-bottom:20px; text-align:center;">${escapeHtml(headerText)}</div>` : ''}
-    <h1 style="font-family:${labelFont}; font-size:24px; margin-bottom:20px; color:#0077cc;">FACTUUR</h1>
-    <div style="display:flex; justify-content:space-between; margin-bottom:30px; gap:40px;">
-      <div style="flex:1;">
-        <div style="font-family:${labelFont}; font-weight:bold; margin-bottom:8px;">Verzender</div>
-        <div style="font-weight:bold;">${escapeHtml(companyDisplay)}</div>
+    ${headerText ? `<div style="font-family: '${headerFont}'; font-size: ${headerSize}; margin-bottom:20px; text-align:center;">${escapeHtml(headerText)}</div>` : ''}
+    <h1 style="font-family: '${labelFont}'; font-size:24px; margin-bottom:20px; color:#0077cc;">FACTUUR</h1>
+    <div style="display: flex; justify-content: space-between; margin-bottom: 30px; width: 100%;">
+      <div style="width: 48%;">
+        <div style="font-family: '${labelFont}'; font-weight: bold; margin-bottom: 8px;">Verzender</div>
+        <div style="font-weight: bold;">${escapeHtml(companyDisplay)}</div>
         ${companyContact ? `<div>${escapeHtml(companyContact)}</div>` : ''}
         <div>${escapeHtml(companyAddress)}</div>
         ${company.iban ? `<div>IBAN: ${escapeHtml(company.iban)}</div>` : ''}
         ${company.kvk ? `<div>KvK: ${escapeHtml(company.kvk)}</div>` : ''}
       </div>
-      <div style="flex:1;">
-        <div style="font-family:${labelFont}; font-weight:bold; margin-bottom:8px;">Ontvanger</div>
-        <div style="font-weight:bold;">${escapeHtml(clientDisplay)}</div>
+      <div style="width: 48%;">
+        <div style="font-family: '${labelFont}'; font-weight: bold; margin-bottom: 8px;">Ontvanger</div>
+        <div style="font-weight: bold;">${escapeHtml(clientDisplay)}</div>
         ${clientContact ? `<div>${escapeHtml(clientContact)}</div>` : ''}
         <div>${escapeHtml(clientAddress)}</div>
         ${currentClient.kvk ? `<div>KvK: ${escapeHtml(currentClient.kvk)}</div>` : ''}
       </div>
     </div>
     <div style="margin-bottom:25px;">
-      <span style="font-family:${labelFont}; font-weight:bold;">Factuurnummer:</span> ${currentInvoiceNumber}<br>
-      <span style="font-family:${labelFont}; font-weight:bold;">Factuurdatum:</span> ${invoiceDate}<br>
-      <span style="font-family:${labelFont}; font-weight:bold;">Periode:</span> ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long', year: 'numeric' })}
+      <span style="font-family: '${labelFont}'; font-weight:bold;">Factuurnummer:</span> ${currentInvoiceNumber}<br>
+      <span style="font-family: '${labelFont}'; font-weight:bold;">Factuurdatum:</span> ${invoiceDate}<br>
+      <span style="font-family: '${labelFont}'; font-weight:bold;">Periode:</span> ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long', year: 'numeric' })}
     </div>
     <table style="width:100%; border-collapse:collapse; margin-bottom:20px;">
       <thead>
-        <tr style="background:#f1f5f9; font-family:${labelFont}; font-size:${labelSize}px;">
+        <tr style="background:#f1f5f9; font-family: '${labelFont}'; font-size: ${labelSize};">
           <th style="border:1px solid #000; padding:10px;">DATUM</th>
           <th style="border:1px solid #000; padding:10px;">OMSCHRIJVING</th>
           <th style="border:1px solid #000; padding:10px;">KM</th>
@@ -526,10 +535,10 @@ function generatePreview() {
         </tr>
         <tr>
           <td colspan="4" style="border:1px solid #000; padding:8px; text-align:right;">Kilometervergoeding (${KM_RATE.toFixed(2)}/km x ${totalKm.toFixed(1)} km)</td>
-          <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${kmCompensation.toFixed(2)}</td>
+          <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${currentKmCompensation.toFixed(2)}</td>
         </tr>
         <tr>
-          <td colspan="4" style="border:1px solid #000; padding:8px; text-align:right;">BTW (${vat}%)</td>
+          <td colspan="4" style="border:1px solid #000; padding:8px; text-align:right;">BTW (${currentVat}%)</td>
           <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${btw.toFixed(2)}</td>
         </tr>
         <tr style="font-weight:bold; background:#fef3c7;">
@@ -538,35 +547,34 @@ function generatePreview() {
         </tr>
       </tfoot>
     </table>
-    ${footerText ? `<div style="font-family:${headerFont}; font-size:${headerSize}px; margin-top:20px; padding:15px; background:#f8fafc; border-radius:12px;">${escapeHtml(footerText)}</div>` : ''}
-    <div class="invoice-footer-note">
-      <p>Betaling graag binnen 14 dagen na factuurdatum overmaken op bovenstaand IBAN.</p>
-    </div>
+    ${footerText ? `<div style="font-family: '${headerFont}'; font-size: ${headerSize}; margin-top:20px;">${escapeHtml(footerText)}</div>` : ''}
   </div>`;
 
-  // UITGEKLEDE FACTUUR
-  let simpleRows = '';
-  let simpleTotal = 0;
+  // UITGEKLEDE FACTUUR - met kilometers per dag, zonder omschrijving, maar met BTW en reiskosten
+  let secretRows = '';
+  let secretTotalWork = 0;
   
   currentInvoiceWorkdays.forEach((day, idx) => {
     if(!document.getElementById(`include_${idx}`)?.checked) return;
     const hours = parseFloat(document.getElementById(`hours_${idx}`)?.value) || 0;
+    const km = parseFloat(document.getElementById(`km_${idx}`)?.value) || 0;
     const rate = parseFloat(document.getElementById(`rate_${idx}`)?.value) || HOURLY_RATE;
     const amount = hours * rate;
-    simpleTotal += amount;
-    simpleRows += `
-      <tr>
+    secretTotalWork += amount;
+    
+    secretRows += `
+      <tr style="font-family: '${contentFont}'; font-size: ${contentSize};">
         <td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td>
-        <td style="border:1px solid #000; padding:8px;">Werkzaamheden</td>
+        <td style="border:1px solid #000; padding:8px; text-align:right;">${km.toFixed(1)} km</td>
         <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${amount.toFixed(2)}</td>
       </tr>`;
   });
   
   extraLines.forEach(line => {
     if(line.amount && line.amount !== 0) {
-      simpleTotal += line.amount;
-      simpleRows += `
-        <tr>
+      secretTotalWork += line.amount;
+      secretRows += `
+        <tr style="font-family: '${contentFont}'; font-size: ${contentSize};">
           <td style="border:1px solid #000; padding:8px;">${line.date || ''}</td>
           <td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)}</td>
           <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${line.amount.toFixed(2)}</td>
@@ -574,43 +582,58 @@ function generatePreview() {
     }
   });
   
-  const simpleGrand = simpleTotal + kmCompensation;
+  const secretKmCompensation = currentTotalKm * KM_RATE;
+  const secretSubtotal = secretTotalWork + secretKmCompensation;
+  const secretBtw = secretSubtotal * (currentVat / 100);
+  const secretGrand = secretSubtotal + secretBtw;
   
   currentSecretHTML = `
-  <div style="font-family:${contentFont}; font-size:${contentSize}px; max-width:800px; margin:0 auto; padding:20px;">
+  <div style="font-family: '${contentFont}'; font-size: ${contentSize}; max-width:800px; margin:0 auto; padding:20px;">
     ${logoHtml}
-    <h2 style="font-family:${labelFont};">FACTUUR</h2>
+    <h2 style="font-family: '${labelFont}';">FACTUUR</h2>
     <p><strong>Factuurnummer:</strong> ${currentInvoiceNumber}</p>
     <p><strong>Factuurdatum:</strong> ${invoiceDate}</p>
     <p><strong>Opdrachtgever:</strong> ${escapeHtml(clientDisplay)}${clientContact ? ' - ' + escapeHtml(clientContact) : ''}</p>
     <table style="width:100%; border-collapse:collapse; margin:20px 0;">
       <thead>
-        <tr style="background:#f1f5f9;">
+        <tr style="background:#f1f5f9; font-family: '${labelFont}';">
           <th style="border:1px solid #000; padding:8px;">DATUM</th>
-          <th style="border:1px solid #000; padding:8px;">OMSCHRIJVING</th>
+          <th style="border:1px solid #000; padding:8px;">KM</th>
           <th style="border:1px solid #000; padding:8px;">BEDRAG</th>
         </tr>
       </thead>
       <tbody>
-        ${simpleRows}
-        <tr style="background:#fef3c7;">
-          <td colspan="2" style="border:1px solid #000; padding:8px; text-align:right;"><strong>Totaal</strong></td>
-          <td style="border:1px solid #000; padding:8px; text-align:right;"><strong>€ ${simpleGrand.toFixed(2)}</strong></td>
+        ${secretRows}
+        <tr style="background:#f1f5f9;">
+          <td colspan="2" style="border:1px solid #000; padding:8px; text-align:right;"><strong>Subtotaal werk</strong></td>
+          <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${secretTotalWork.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td colspan="2" style="border:1px solid #000; padding:8px; text-align:right;">Kilometervergoeding (${KM_RATE.toFixed(2)}/km x ${currentTotalKm.toFixed(1)} km)</td>
+          <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${secretKmCompensation.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td colspan="2" style="border:1px solid #000; padding:8px; text-align:right;">BTW (${currentVat}%)</td>
+          <td style="border:1px solid #000; padding:8px; text-align:right;">€ ${secretBtw.toFixed(2)}</td>
+        </tr>
+        <tr style="font-weight:bold; background:#fef3c7;">
+          <td colspan="2" style="border:1px solid #000; padding:10px; text-align:right;">TOTAAL</td>
+          <td style="border:1px solid #000; padding:10px; text-align:right;">€ ${secretGrand.toFixed(2)}</td>
         </tr>
       </tbody>
     </table>
-    <p><small>Betaling binnen 14 dagen op IBAN: ${escapeHtml(company.iban)}</small></p>
+    ${footerText ? `<div style="font-family: '${headerFont}'; font-size: ${headerSize}; margin-top:20px;">${escapeHtml(footerText)}</div>` : ''}
   </div>`;
   
   // TOELICHTING
   currentExplanationHTML = `
-  <div style="font-family:${contentFont}; font-size:${contentSize}px; max-width:800px; margin:0 auto; padding:20px;">
-    <h3 style="font-family:${labelFont};">📋 Toelichting bij factuur ${currentInvoiceNumber}</h3>
+  <div style="font-family: '${contentFont}'; font-size: ${contentSize}; max-width:800px; margin:0 auto; padding:20px;">
+    <h3 style="font-family: '${labelFont}';">📋 Toelichting bij factuur ${currentInvoiceNumber}</h3>
     <p><strong>Opdrachtgever:</strong> ${escapeHtml(clientDisplay)}${clientContact ? ' - ' + escapeHtml(clientContact) : ''}</p>
     <p><strong>Periode:</strong> ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long', year: 'numeric' })}</p>
     <table style="width:100%; border-collapse:collapse; margin:15px 0;">
       <thead>
-        <tr style="background:#f1f5f9;">
+        <tr style="background:#f1f5f9; font-family: '${labelFont}';">
           <th style="border:1px solid #000; padding:8px;">DATUM</th>
           <th style="border:1px solid #000; padding:8px;">WERKZAAMHEDEN</th>
           <th style="border:1px solid #000; padding:8px;">UREN</th>
@@ -624,7 +647,7 @@ function generatePreview() {
           const km = parseFloat(document.getElementById(`km_${idx}`)?.value) || 0;
           const desc = document.getElementById(`desc_${idx}`)?.value || day.notes || 'Werkdag';
           return `
-            <tr>
+            <tr style="font-family: '${contentFont}'; font-size: ${contentSize};">
               <td style="border:1px solid #000; padding:6px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td>
               <td style="border:1px solid #000; padding:6px;">${escapeHtml(desc)}</td>
               <td style="border:1px solid #000; padding:6px; text-align:right;">${hours.toFixed(2)}</td>
@@ -636,28 +659,25 @@ function generatePreview() {
     <p><strong>Uurtarief:</strong> € ${HOURLY_RATE.toFixed(2)}/uur</p>
     <p><strong>Kilometervergoeding:</strong> € ${KM_RATE.toFixed(2)}/km</p>
     <p><strong>Totaal gewerkte uren:</strong> ${totalHours.toFixed(2)} uur</p>
-    <p><strong>Totaal gereden km:</strong> ${totalKm.toFixed(1)} km</p>
-    <p><strong>BTW percentage:</strong> ${vat}%</p>
+    <p><strong>Totaal gereden km:</strong> ${currentTotalKm.toFixed(1)} km</p>
+    <p><strong>BTW percentage:</strong> ${currentVat}%</p>
   </div>`;
 
   const container = document.getElementById('invoicePreviewContainer');
   container.style.display = 'block';
   const secretButtons = document.getElementById('secretModeButtons');
+  const normalButtons = document.getElementById('normalModeButtons');
   
   if(secretMode) {
     currentGeneratedHTML = currentSecretHTML;
     container.innerHTML = currentSecretHTML;
     if(secretButtons) secretButtons.style.display = 'flex';
-    document.getElementById('downloadOnlyBtn').style.display = 'none';
-    document.getElementById('sendOnlyBtn').style.display = 'none';
-    document.getElementById('downloadAndSendBtn').style.display = 'none';
+    if(normalButtons) normalButtons.style.display = 'none';
   } else {
     currentGeneratedHTML = currentNormalHTML;
     container.innerHTML = currentNormalHTML;
     if(secretButtons) secretButtons.style.display = 'none';
-    document.getElementById('downloadOnlyBtn').style.display = 'block';
-    document.getElementById('sendOnlyBtn').style.display = 'block';
-    document.getElementById('downloadAndSendBtn').style.display = 'block';
+    if(normalButtons) normalButtons.style.display = 'flex';
   }
 
   const filenameInput = document.getElementById('invoiceFilename');
@@ -671,7 +691,7 @@ function generatePreview() {
   showWarning('✅ Factuur gegenereerd!');
 }
 
-// ========== DOWNLOAD FUNCTIES VOOR GEHEIME MODUS ==========
+// ========== DOWNLOAD FUNCTIES ==========
 function downloadNormalPDF() {
   const opt = {
     margin: [0.5, 0.5, 0.5, 0.5],
@@ -737,7 +757,6 @@ function saveInvoiceToStorage(type = 'normaal') {
   showWarning('✅ Factuur opgeslagen bij "Facturen"');
 }
 
-// ========== PDF DOWNLOAD ==========
 function downloadInvoiceAsPDF() {
   const element = document.getElementById('invoicePreviewContainer');
   const filename = document.getElementById('invoiceFilename').value || 'factuur';
@@ -753,12 +772,10 @@ function downloadInvoiceAsPDF() {
   showWarning('📥 PDF gedownload en opgeslagen!');
 }
 
-// ========== EMAIL VERSTUREN MET BIJLAGE INSTRUCTIE ==========
 function sendInvoiceByEmail() {
   const clientEmail = prompt('Voer het e-mailadres van de opdrachtgever in:', '');
   if(!clientEmail) return;
   
-  const filename = document.getElementById('invoiceFilename').value || 'factuur';
   const subject = encodeURIComponent(`Factuur ${currentInvoiceNumber}`);
   const body = encodeURIComponent(
     `Beste,\n\n` +
@@ -773,7 +790,6 @@ function sendInvoiceByEmail() {
   showWarning('📧 E-mailclient geopend! Download eerst de PDF en voeg deze toe aan de e-mail.');
 }
 
-// ========== DOWNLOAD & VERSTUREN ==========
 function downloadAndSend() {
   downloadInvoiceAsPDF();
   setTimeout(() => {
@@ -811,12 +827,10 @@ document.getElementById('saveFilenameBtn').onclick = () => {
   showWarning('💾 Bestandsnaam opgeslagen');
 };
 
-// Geheime modus knoppen
 document.getElementById('downloadNormalBtn').onclick = downloadNormalPDF;
 document.getElementById('downloadSecretBtn').onclick = downloadSecretPDF;
 document.getElementById('downloadExplanationBtn').onclick = downloadExplanationPDF;
 
-// Secret mode toggle
 document.getElementById('secretModeToggle').onchange = (e) => {
   document.getElementById('secretInfo').style.display = e.target.checked ? 'block' : 'none';
 };
