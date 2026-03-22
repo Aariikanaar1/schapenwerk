@@ -55,7 +55,7 @@
     <button class="menu-item" data-page="instellingen"><span>⚙️</span> Instellingen</button>
     <button class="menu-item" data-page="feedback"><span>💬</span> Feedback</button>
   </div>
-  <div class="menu-footer"><span id="versionFooter">v4.5</span></div>
+  <div class="menu-footer"><span id="versionFooter">v4.6</span></div>
 </div>
 
 <main id="mainContent">
@@ -65,12 +65,19 @@
 </main>
 
 <script>
-// ========== SWIPE ==========
+// BLIJF VOORKOMEN DAT DE PAGINA GEREFRESHED WORDT
+window.addEventListener('beforeunload', function(e) {
+  e.preventDefault();
+  e.returnValue = '';
+  return '';
+});
+
+// SWIPE NAAR RECHTS
 let touchStartX = 0;
 document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; });
 document.addEventListener('touchend', e => { if(e.changedTouches[0].clientX - touchStartX > 50) openMenu(); });
 
-// ========== MENU ==========
+// MENU
 const menuToggle = document.getElementById('menuToggleBtn');
 const sideMenu = document.getElementById('sideMenu');
 const menuOverlay = document.getElementById('menuOverlay');
@@ -106,7 +113,7 @@ function loadPage(pageId) {
   pageContainer.innerHTML = `<iframe id="pageFrame" src="${pageFile}" title="${pageId}"></iframe>`;
   localStorage.setItem('lastPage', pageId);
   
-  // Luister naar berichten van iframe voor warnings
+  // Luister naar berichten van iframe
   window.addEventListener('message', (event) => {
     if(event.data && event.data.type === 'warning') {
       showWarning(event.data.message);
@@ -124,7 +131,7 @@ menuItems.forEach(item => {
 
 const lastPage = localStorage.getItem('lastPage') || 'werkdag';
 loadPage(lastPage);
-document.getElementById('versionFooter').innerHTML = 'v4.5<br><span style="font-size:9px;">Modulair</span>';
+document.getElementById('versionFooter').innerHTML = 'v4.6<br><span style="font-size:9px;">Modulair</span>';
 </script>
 </body>
 </html>
