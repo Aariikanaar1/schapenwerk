@@ -90,15 +90,14 @@ let extraLines = [];
 let companyLogo = null;
 
 function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
-function escapeHtml(s){if(!s)return'';return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;')}
-function formatDateToDutch(d){return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`}
-function formatTimestamp(d){if(!d)return'—';return new Date(d).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}
-function getContactDisplayName(c){return c.company?.trim()||c.name||'Onbekend'}
+function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
+function formatDateToDutch(d){ return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
+function getContactDisplayName(c){ return c.company?.trim() || c.name || 'Onbekend'; }
 
-function loadRates(){const h=localStorage.getItem('hourlyRate');if(h)HOURLY_RATE=parseFloat(h);const k=localStorage.getItem('kmRate');if(k)KM_RATE=parseFloat(k);}
+function loadRates(){ const h=localStorage.getItem('hourlyRate'); if(h) HOURLY_RATE=parseFloat(h); const k=localStorage.getItem('kmRate'); if(k) KM_RATE=parseFloat(k); }
 loadRates();
 
-function loadContacts(){const s=localStorage.getItem('contacts');if(s)contacts=JSON.parse(s);updateInvoiceClientSelect();}
+function loadContacts(){ const s=localStorage.getItem('contacts'); if(s) contacts=JSON.parse(s); updateInvoiceClientSelect(); }
 function updateInvoiceClientSelect() {
   const sel = document.getElementById('invoiceClientSelect');
   if(sel) {
@@ -155,19 +154,6 @@ function renderExtraLines() {
       <button onclick="removeExtraLine(${idx})" class="btn-small" style="background:#ef4444;">✖</button>
     </div>
   `).join('');
-  
-  document.querySelectorAll('.extra-date, .extra-description, .extra-amount').forEach((el, i) => {
-    el.addEventListener('change', () => {
-      const dates = document.querySelectorAll('.extra-date');
-      const descs = document.querySelectorAll('.extra-description');
-      const amounts = document.querySelectorAll('.extra-amount');
-      extraLines = Array.from(dates).map((d, idx) => ({
-        date: d.value,
-        description: descs[idx]?.value || '',
-        amount: parseFloat(amounts[idx]?.value) || 0
-      }));
-    });
-  });
 }
 
 function removeExtraLine(index) {
@@ -220,18 +206,18 @@ function generateInvoice(andSend = false) {
     const kmAmt = km * KM_RATE;
     const sub = workAmt + kmAmt;
     total += sub;
-    rows += `| 5美金<td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))} 5美金<td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')} 5美金<td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)} uur 5美金<td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">${km.toFixed(1)} km 5美金<td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)} 5美金`;
+    rows += `<tr><td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')}</td><td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)} uur</td><td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">${km.toFixed(1)} km</td><td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)}</td></tr>`;
     if(secretMode) {
-      detailedRows += `| 5美金<td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))} 5美金<td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')} 5美金<td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${rate.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">${km.toFixed(1)} 5美金<td style="border:1px solid #000; padding:8px;">€${KM_RATE.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)} 5美金<td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)} 5美金`;
+      detailedRows += `<tr><td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')}</td><td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${rate.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">${km.toFixed(1)}</td><td style="border:1px solid #000; padding:8px;">€${KM_RATE.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)}</td></tr>`;
     }
   });
   
   extraLines.forEach(line => {
     const amount = line.amount;
     total += amount;
-    rows += `| 5美金<td style="border:1px solid #000; padding:8px;">${line.date || ''} 5美金<td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)} 5美金<td style="border:1px solid #000; padding:8px;"> 5美金<td style="border:1px solid #000; padding:8px;"> 5美金<td style="border:1px solid #000; padding:8px;"> 5美金<td style="border:1px solid #000; padding:8px;"> 5美金<td style="border:1px solid #000; padding:8px;">€${amount.toFixed(2)} 5美金`;
+    rows += `<tr><td style="border:1px solid #000; padding:8px;">${line.date || ''}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)}</td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;">€${amount.toFixed(2)}</td></tr>`;
     if(secretMode) {
-      detailedRows += `| 5美金<td style="border:1px solid #000; padding:8px;">${line.date || ''} 5美金<td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)} 5美金<td style="border:1px solid #000; padding:8px;"> 5美金<td style="border:1px solid #000; padding:8px;"> 5美金<td style="border:1px solid #000; padding:8px;"> 5美金<td style="border:1px solid #000; padding:8px;"> 5美金<td style="border:1px solid #000; padding:8px;"> 5美金<td style="border:1px solid #000; padding:8px;"> 5美金<td style="border:1px solid #000; padding:8px;">€${amount.toFixed(2)} 5美金`;
+      detailedRows += `<tr><td style="border:1px solid #000; padding:8px;">${line.date || ''}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)}</td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;">€${amount.toFixed(2)}</td></tr>`;
     }
   });
   
@@ -243,7 +229,6 @@ function generateInvoice(andSend = false) {
   const invoiceDate = formatDateToDutch(new Date());
   const logoHtml = companyLogo ? `<img src="${companyLogo}" style="max-height:60px; margin-bottom:10px;">` : '';
   const clientDisplay = `${client.company || client.name || ''}${client.street ? ', ' + client.street : ''}${client.city ? ', ' + client.city : ''}`;
-  const companyDisplay = `${company.name || 'Uw bedrijf'}<br>${company.street || ''}<br>${company.location || ''}<br>IBAN: ${company.iban || ''}<br>KvK: ${company.kvk || ''}`;
   
   let html = '';
   
@@ -256,9 +241,9 @@ function generateInvoice(andSend = false) {
       <p>Datum: ${invoiceDate}</p>
       ${headerText ? `<p>${headerText}</p>` : ''}
       <table border="1" cellpadding="5" style="width:100%; border-collapse:collapse;">
-        <thead> 5美金<th>Omschrijving</th><th>Bedrag</th> 5美金</thead>
-        <tbody> 5美金<td>Werkzaamheden periode ${new Date(year, month).toLocaleString('nl-NL', { month: 'long' })} ${year} 5美金<td>€${total.toFixed(2)} 5美金</tbody>
-      5美金
+        <thead><tr><th>Omschrijving</th><th>Bedrag</th></tr></thead>
+        <tbody><tr><td>Werkzaamheden periode ${new Date(year, month).toLocaleString('nl-NL', { month: 'long' })} ${year}</td><td>€${total.toFixed(2)}</td></tr></tbody>
+      </table>
       ${footerText ? `<p>${footerText}</p>` : ''}
       <p><em>Een apart toelichtingsdocument met de specificaties is bijgevoegd.</em></p>
     </div>
@@ -267,10 +252,10 @@ function generateInvoice(andSend = false) {
       <p><strong>${clientDisplay}</strong></p>
       <p>Hieronder vindt u de specificatie van de werkzaamheden:</p>
       <table border="1" cellpadding="5" style="width:100%; border-collapse:collapse;">
-        <thead> 5美金<th>Datum</th><th>Omschrijving</th><th>Uren</th><th>Uurloon</th><th>Bedrag werk</th><th>KM</th><th>KM vergoeding</th><th>Totaal</th> 5美金</thead>
-        <tbody>${detailedRows.replace(/\|/g, '')}</tbody>
-        <tfoot> 5美金<td colspan="7" align="right"><strong>Totaal</strong> 5美金<td><strong>€${total.toFixed(2)}</strong> 5美金</tfoot>
-      5美金
+        <thead><tr><th>Datum</th><th>Omschrijving</th><th>Uren</th><th>Uurloon</th><th>Bedrag werk</th><th>KM</th><th>KM vergoeding</th><th>Totaal</th></tr></thead>
+        <tbody>${detailedRows}</tbody>
+        <tfoot><tr><td colspan="7" align="right"><strong>Totaal</strong></td><td><strong>€${total.toFixed(2)}</strong></td></tr></tfoot>
+      </table>
     </div>`;
     document.getElementById('invoicePreviewContainer').innerHTML = html;
     generatePDF('invoiceToPrint', `Factuur_${invoiceNumber}.pdf`);
@@ -287,14 +272,14 @@ function generateInvoice(andSend = false) {
       <p>Datum: ${invoiceDate}</p>
       ${headerText ? `<p>${headerText}</p>` : ''}
       <table border="1" cellpadding="5" style="width:100%; border-collapse:collapse;">
-        <thead> 5美金<th>Datum</th><th>Omschrijving</th><th>Uren</th><th>Bedrag werk</th><th>KM</th><th>KM vergoeding</th><th>Totaal</th> 5美金</thead>
-        <tbody>${rows.replace(/\|/g, '')}</tbody>
+        <thead><tr><th>Datum</th><th>Omschrijving</th><th>Uren</th><th>Bedrag werk</th><th>KM</th><th>KM vergoeding</th><th>Totaal</th></tr></thead>
+        <tbody>${rows}</tbody>
         <tfoot>
-          5美金<td colspan="6" align="right"><strong>Totaal excl. BTW</strong> 5美金<td><strong>€${total.toFixed(2)}</strong> 5美金
-          5美金<td colspan="6" align="right">BTW (${vat}%) 5美金<td><strong>€${btw.toFixed(2)}</strong> 5美金
-          5美金<td colspan="6" align="right"><strong>Totaal incl. BTW</strong> 5美金<td><strong>€${grand.toFixed(2)}</strong> 5美金
+          <tr><td colspan="6" align="right"><strong>Totaal excl. BTW</strong></td><td><strong>€${total.toFixed(2)}</strong></td></tr>
+          <tr><td colspan="6" align="right">BTW (${vat}%)</td><td><strong>€${btw.toFixed(2)}</strong></td></tr>
+          <tr><td colspan="6" align="right"><strong>Totaal incl. BTW</strong></td><td><strong>€${grand.toFixed(2)}</strong></td></tr>
         </tfoot>
-      5美金
+      </table>
       ${footerText ? `<p>${footerText}</p>` : ''}
     </div>`;
     document.getElementById('invoicePreviewContainer').innerHTML = html;
@@ -319,10 +304,6 @@ document.getElementById('addExtraLineBtn').onclick = () => { extraLines.push({ d
 document.getElementById('secretModeToggle').onchange = () => {
   document.getElementById('secretInfo').style.display = document.getElementById('secretModeToggle').checked ? 'block' : 'none';
 };
-
-// Laad logo
-const logo = localStorage.getItem('companyLogo');
-if(logo) companyLogo = logo;
 
 renderExtraLines();
 loadInvoiceWorkdays();

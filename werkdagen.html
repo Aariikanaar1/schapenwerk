@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Werkdagen - Schapenwerk</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: #f5f7fb; padding: 20px 16px 80px 16px; }
+    .card { background: white; border-radius: 24px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .month-selector { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
+    button { border: none; padding: 10px 20px; border-radius: 40px; font-weight: 600; font-size: 0.85rem; cursor: pointer; font-family: inherit; }
+    .btn-primary { background: #0077cc; color: white; }
+    .btn-secondary { background: #e2e8f0; color: #1e293b; }
+    select, input { padding: 10px; border-radius: 40px; border: 1px solid #e2e8f0; font-family: inherit; }
+    .session-item { background: white; border-radius: 20px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .session-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .client-badge { background: #e0e7ff; color: #1e3a8a; padding: 4px 12px; border-radius: 20px; font-size: 0.7rem; font-weight: 500; }
+    .time-point { font-size: 0.7rem; color: #4a627a; margin: 4px 0; font-family: monospace; background: #f8fafc; padding: 4px 8px; border-radius: 12px; display: inline-block; margin-right: 6px; }
+    .financial-total { background: #fef3c7; border-radius: 16px; padding: 12px; margin: 12px 0; display: flex; justify-content: space-between; font-weight: bold; }
+    .map-thumb { height: 180px; border-radius: 16px; margin-top: 12px; background: #eef2f6; overflow: hidden; }
+    .photo-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .photo-thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 12px; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="month-selector">
+    <select id="sessionMonthSelect">
+      <option value="0">Januari</option><option value="1">Februari</option><option value="2">Maart</option>
+      <option value="3">April</option><option value="4">Mei</option><option value="5">Juni</option>
+      <option value="6">Juli</option><option value="7">Augustus</option><option value="8">September</option>
+      <option value="9">Oktober</option><option value="10">November</option><option value="11">December</option>
+    </select>
+    <input type="number" id="sessionYearSelect" value="2026" step="1" style="width:80px;">
+    <button id="applyMonthFilterBtn" class="btn-primary">🔍 Filter</button>
+    <button id="resetMonthFilterBtn" class="btn-secondary">📅 Deze maand</button>
+  </div>
+  <div id="sessionsContainer"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+<script>
+let HOURLY_RATE = 25.00, KM_RATE = 0.21;
+let currentFilterMonth = new Date().getMonth();
+let currentFilterYear = new Date().getFullYear();
+
+function formatTimestamp(d){ if(!d) return '—'; return new Date(d).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'}); }
+function formatDateToDutch(d){ return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
+function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
+function loadRates(){ const h=localStorage.getItem('hourlyRate'); if(h) HOURLY_RATE=parseFloat(h); const k=localStorage.getItem('kmRate'); if(k) KM_RATE=parseFloat(k); }
+loadRates();
+
+function applyMonthFilter() {
+  currentFilterMonth = parseInt(document.getElementById('sessionMonthSelect').value);
+  currentFilterYear = parseInt(document.getElementById('sessionYearSelect').value);
+  renderFilteredSessions();
+}
+function resetToCurrentMonth() { const n=new Date(); document.getElementById('sessionMonthSelect').value=n.getMonth(); document.getElementById('sessionYearSelect').value=n.getFullYear(); applyMonthFilter(); }
+function renderFilteredSessions() { 
+  const all = JSON.parse(localStorage.getItem('workSessionsList') || '[]');
+  const filtered = all.filter(s => {
+    const d = new Date(s.startWorkdayTime);
+    return d.getMonth() === currentFilterMonth && d.getFullYear() === currentFilterYear;
+  });
+  renderSessionsList(filtered);
+}
+function renderSessionsList(sessions) {
+  const container = document.getElementById('sessionsContainer');
+  if(!container) return;
+  if(!sessions.length){ 
+    container.innerHTML = '<div class="card">📭 Geen werkdagen in deze maand</div>'; 
+    return; 
+  }
+  container.innerHTML = sessions.slice().reverse().map(s => { 
+    const d = new Date(s.startWorkdayTime); 
+    const dateStr = isNaN(d.getTime()) ? 'Onbekend' : d.toLocaleDateString('nl-NL'); 
+    const total = (s.workSeconds/3600)*(s.hourlyRate||HOURLY_RATE)+(s.totalDrivingKm||0)*(s.kmRate||KM_RATE);
+    const travelStart = formatTimestamp(s.travelToStartTime || s.startWorkdayTime);
+    const workStart = formatTimestamp(s.startWorkTime);
+    const workEnd = formatTimestamp(s.endWorkTime);
+    const travelEnd = formatTimestamp(s.travelBackStartTime);
+    const stepsHtml = s.totalSteps ? `<div class="time-point">👣 ${s.totalSteps.toLocaleString()} stappen</div>` : '';
+    const photosHtml = s.photos?.length ? `<div class="photo-list">${s.photos.map(p => `<img src="${p.dataUrl}" class="photo-thumb" onclick="window.open('${p.dataUrl}')">`).join('')}</div>` : '';
+    
+    let locs = '';
+    if(s.stops && s.stops.length) {
+      const unique = [...new Map(s.stops.map(stop => [stop.location, stop])).values()];
+      locs = `<div style="margin-top:8px"><strong>📍 Locaties:</strong><br>${unique.map(l => `&nbsp;&nbsp;${l.isWalking ? '🚶‍♂️' : '📍'} ${escapeHtml(l.location)}`).join('<br>')}</div>`;
+    }
+    
+    return `<div class="session-item">
+      <div class="session-header"><strong>📅 ${dateStr}</strong><span class="client-badge">${escapeHtml(s.client||'Onbekend')}</span></div>
+      <div>${stepsHtml}<span class="time-point">🚐 Vertrek: ${travelStart}</span><span class="time-point">🐏 Werk start: ${workStart}</span><span class="time-point">⏹ Werk einde: ${workEnd}</span><span class="time-point">🏠 Thuis: ${travelEnd}</span></div>
+      <div>🐏 ${(s.workSeconds/3600).toFixed(2)} uur &nbsp;|&nbsp; 📟 ${(s.totalKm||0).toFixed(1)} km (${(s.totalDrivingKm||0).toFixed(1)} km vergoed)</div>
+      ${locs}
+      ${photosHtml}
+      <div class="financial-total"><span>💶 Totaal</span><span>€${total.toFixed(2)}</span></div>
+      <p>${escapeHtml(s.notes||'')}</p>
+      <div id="sessMap_${s.id}" class="map-thumb"></div>
+    </div>`;
+  }).join('');
+  
+  sessions.forEach(s => {
+    const mapDiv = document.getElementById(`sessMap_${s.id}`);
+    if(mapDiv && typeof L !== 'undefined' && s.routePoints && s.routePoints.length > 1) {
+      try {
+        const map = L.map(mapDiv, { scrollWheelZoom: false, zoomControl: false });
+        const driving = s.routePoints.filter(p => p.type !== 'walking').map(p => [p.lat, p.lng]);
+        const walking = s.routePoints.filter(p => p.type === 'walking').map(p => [p.lat, p.lng]);
+        if(driving.length > 1) L.polyline(driving, { color: '#0077cc', weight: 4 }).addTo(map);
+        if(walking.length > 1) L.polyline(walking, { color: '#ef4444', weight: 3, dashArray: '5,5' }).addTo(map);
+        const all = [...driving, ...walking];
+        if(all.length > 0) map.fitBounds(L.latLngBounds(all), { padding: [30, 30] });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        setTimeout(() => map.invalidateSize(), 100);
+      } catch(e) {}
+    }
+  });
+}
+document.getElementById('applyMonthFilterBtn').onclick = applyMonthFilter;
+document.getElementById('resetMonthFilterBtn').onclick = resetToCurrentMonth;
+document.getElementById('sessionYearSelect').value = new Date().getFullYear();
+document.getElementById('sessionMonthSelect').value = new Date().getMonth();
+applyMonthFilter();
+</script>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Stappenteller - Schapenwerk</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: #f5f7fb; padding: 20px 16px 80px 16px; }
+    .card { background: white; border-radius: 24px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    button { border: none; padding: 12px 20px; border-radius: 40px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: transform 0.1s; font-family: inherit; }
+    button:active { transform: scale(0.97); }
+    .btn-primary { background: #0077cc; color: white; }
+    .stat-card { background: #f0f9ff; border-radius: 16px; padding: 12px; text-align: center; flex: 1; }
+    .stat-number { font-size: 1.8rem; font-weight: bold; color: #0077cc; }
+    .stats-container { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .steps-day-item { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #e2e8f0; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="stats-container">
+    <div class="stat-card"><div class="stat-number" id="totalStepsAll">0</div><div>🏁 Alle stappen</div></div>
+    <div class="stat-card"><div class="stat-number" id="totalStepsYear">0</div><div>📅 Dit jaar</div></div>
+    <div class="stat-card"><div class="stat-number" id="totalStepsMonth">0</div><div>📆 Deze maand</div></div>
+  </div>
+  <div id="stepsPerDayContainer"></div>
+  <button id="exportStepsBtn" class="btn-primary" style="margin-top: 16px;">📊 Exporteer CSV</button>
+</div>
+
+<script>
+function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+function formatDateToDutch(d){ return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
+
+function renderStepTracker() {
+  const stepStats = JSON.parse(localStorage.getItem('stepStats') || '[]');
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth();
+  let totalSteps = 0, yearSteps = 0, monthSteps = 0;
+  const stepsPerDay = {};
+  
+  stepStats.forEach(stat => {
+    const date = new Date(stat.date);
+    const dateKey = formatDateToDutch(date);
+    totalSteps += stat.steps;
+    if(date.getFullYear() === currentYear) yearSteps += stat.steps;
+    if(date.getFullYear() === currentYear && date.getMonth() === currentMonth) monthSteps += stat.steps;
+    stepsPerDay[dateKey] = (stepsPerDay[dateKey] || 0) + stat.steps;
+  });
+  
+  document.getElementById('totalStepsAll').innerText = totalSteps.toLocaleString();
+  document.getElementById('totalStepsYear').innerText = yearSteps.toLocaleString();
+  document.getElementById('totalStepsMonth').innerText = monthSteps.toLocaleString();
+  
+  const sortedDays = Object.entries(stepsPerDay).sort((a,b) => new Date(b[0].split('-').reverse().join('-')) - new Date(a[0].split('-').reverse().join('-')));
+  const container = document.getElementById('stepsPerDayContainer');
+  if(!container) return;
+  
+  if(sortedDays.length === 0) {
+    container.innerHTML = '<div class="card" style="background:#f8fafc;">📭 Nog geen stappen geregistreerd</div>';
+    return;
+  }
+  
+  container.innerHTML = `<div class="card"><h3>📅 Stappen per dag</h3>` +
+    sortedDays.map(([date, steps]) => `<div class="steps-day-item"><span>${date}</span><span>${steps.toLocaleString()} stappen</span></div>`).join('') +
+    `</div>`;
+}
+
+function exportToCsv() {
+  const stepStats = JSON.parse(localStorage.getItem('stepStats') || '[]');
+  let csv = '"Datum","Stappen"\n';
+  stepStats.forEach(s => {
+    const date = new Date(s.date);
+    csv += `"${formatDateToDutch(date)}","${s.steps}"\n`;
+  });
+  const blob = new Blob(["\uFEFF" + csv], {type: 'text/csv;charset=utf-8;'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `stappenteller_${formatDateToDutch(new Date())}.csv`;
+  link.click();
+  showWarning('✅ CSV geëxporteerd');
+}
+
+document.getElementById('exportStepsBtn').onclick = exportToCsv;
+renderStepTracker();
+</script>
+</body>
+</html>

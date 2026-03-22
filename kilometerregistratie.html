@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Kilometerregistratie - Schapenwerk</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: #f5f7fb; padding: 20px 16px 80px 16px; }
+    .card { background: white; border-radius: 24px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    button { border: none; padding: 12px 20px; border-radius: 40px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: transform 0.1s; font-family: inherit; }
+    button:active { transform: scale(0.97); }
+    .btn-primary { background: #0077cc; color: white; }
+    .toggle-switch { display: flex; align-items: center; justify-content: space-between; background: #f1f5f9; padding: 12px 16px; border-radius: 48px; margin: 15px 0; }
+    .switch { position: relative; display: inline-block; width: 48px; height: 26px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: 0.2s; border-radius: 34px; }
+    .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: 0.2s; border-radius: 50%; }
+    input:checked + .slider { background-color: #0077cc; }
+    input:checked + .slider:before { transform: translateX(22px); }
+    .stat-card { background: #f0f9ff; border-radius: 16px; padding: 12px; text-align: center; flex: 1; }
+    .stat-number { font-size: 1.5rem; font-weight: bold; color: #0077cc; }
+    .stats-container { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+    th, td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #f8fafc; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="stats-container">
+    <div class="stat-card"><div class="stat-number" id="totalKmThisYear">0 km</div><div>🏁 Totaal dit jaar</div></div>
+    <div class="stat-card"><div class="stat-number" id="businessKmThisYear">0 km</div><div>💼 Zakelijk</div></div>
+    <div class="stat-card"><div class="stat-number" id="privateKmThisYear">0 km</div><div>🏠 Privé</div></div>
+  </div>
+  
+  <div class="toggle-switch">
+    <span>👁️ Toon privé ritten</span>
+    <label class="switch"><input type="checkbox" id="showPrivateKmToggle"><span class="slider"></span></label>
+  </div>
+  
+  <div id="kmRegContainer"></div>
+  <button id="exportKmCsvBtn" class="btn-primary" style="margin-top: 16px;">📊 Exporteer CSV</button>
+</div>
+
+<script>
+function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+function formatTimestamp(d){ if(!d) return '—'; return new Date(d).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'}); }
+function formatDateToDutch(d){ return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
+function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
+
+function updateKmStats() {
+  const workSessions = JSON.parse(localStorage.getItem('workSessionsList') || '[]');
+  const privateSessions = JSON.parse(localStorage.getItem('privateSessions') || '[]');
+  let totalKm = 0, businessKm = 0, privateKm = 0;
+  workSessions.forEach(s => { const km = s.totalKm || 0; totalKm += km; businessKm += s.totalDrivingKm || 0; });
+  privateSessions.forEach(s => { const km = s.distance || 0; totalKm += km; privateKm += km; });
+  document.getElementById('totalKmThisYear').innerText = totalKm.toFixed(0) + ' km';
+  document.getElementById('businessKmThisYear').innerText = businessKm.toFixed(0) + ' km';
+  document.getElementById('privateKmThisYear').innerText = privateKm.toFixed(0) + ' km';
+}
+
+function renderKmRegistration() {
+  const workSessions = JSON.parse(localStorage.getItem('workSessionsList') || '[]');
+  const showPrivate = document.getElementById('showPrivateKmToggle')?.checked || false;
+  const homeStreet = localStorage.getItem('companyStreet') || 'Thuis';
+  const homeLocation = localStorage.getItem('companyLocation') || '';
+  let homeName = homeStreet;
+  if(homeLocation) homeName += `, ${homeLocation}`;
+  
+  let html = '';
+  workSessions.sort((a,b) => new Date(a.startWorkdayTime) - new Date(b.startWorkdayTime));
+  
+  if(workSessions.length === 0) {
+    document.getElementById('kmRegContainer').innerHTML = '<div class="card">📭 Geen ritten gevonden</div>';
+    updateKmStats();
+    return;
+  }
+  
+  workSessions.forEach(sess => {
+    const date = new Date(sess.startWorkdayTime);
+    const dateStr = formatDateToDutch(date);
+    let lastOdo = sess.startOdo || 0;
+    
+    html += `<div class="card"><h3>📅 ${dateStr}</h3> <table> <thead> <tr> <th>Tijdstip</th> <th>Locatie</th> <th>Beginstand</th> <th>Eindstand</th> <th>km</th> <th>Type</th> </tr> </thead> <tbody>`;
+    
+    if(sess.stops && sess.stops.length) {
+      html += `<tr><td>${formatTimestamp(sess.travelToStartTime || sess.startWorkdayTime)}</td><td>🏠 ${escapeHtml(homeName)}</td><td>${sess.startOdo.toFixed(0)}</td><td>-</td><td>-</td><td>Start</td></tr>`;
+      
+      sess.stops.forEach((stop, idx) => {
+        if(!showPrivate && stop.isPrivate) return;
+        const startKm = lastOdo;
+        const endKm = stop.endOdo || lastOdo;
+        const km = endKm - startKm;
+        html += `<tr><td>${formatTimestamp(stop.startTime)}</td><td>📍 ${escapeHtml(stop.location)}</td><td>${startKm.toFixed(0)}</td><td>${endKm.toFixed(0)}</td><td>${km.toFixed(0)}</td><td>${stop.isWalking ? '🚶 Lopen' : '🚗 Rijden'}</td></tr>`;
+        lastOdo = endKm;
+      });
+      
+      html += `<tr><td>${formatTimestamp(sess.travelBackStartTime)}</td><td>🏠 ${escapeHtml(homeName)}</td><td>${lastOdo.toFixed(0)}</td><td>${sess.endOdo.toFixed(0)}</td><td>${(sess.endOdo - lastOdo).toFixed(0)}</td><td>Thuis</td></tr>`;
+    }
+    html += `</tbody> </table> </div>`;
+  });
+  
+  document.getElementById('kmRegContainer').innerHTML = html;
+  updateKmStats();
+}
+
+function exportToCsv() {
+  const workSessions = JSON.parse(localStorage.getItem('workSessionsList') || '[]');
+  const homeStreet = localStorage.getItem('companyStreet') || 'Thuis';
+  const homeLocation = localStorage.getItem('companyLocation') || '';
+  let homeName = homeStreet;
+  if(homeLocation) homeName += `, ${homeLocation}`;
+  
+  let csv = '"Datum","Tijdstip","Locatie","Beginstand","Eindstand","Kilometers","Type"\n';
+  
+  workSessions.forEach(sess => {
+    const date = formatDateToDutch(new Date(sess.startWorkdayTime));
+    let lastOdo = sess.startOdo || 0;
+    
+    if(sess.stops && sess.stops.length) {
+      csv += `"${date}","${formatTimestamp(sess.travelToStartTime || sess.startWorkdayTime)}","Thuis","${sess.startOdo.toFixed(0)}","-","-","Start"\n`;
+      
+      sess.stops.forEach((stop, idx) => {
+        const startKm = lastOdo;
+        const endKm = stop.endOdo || lastOdo;
+        const km = endKm - startKm;
+        csv += `"${date}","${formatTimestamp(stop.startTime)}","${stop.location}","${startKm.toFixed(0)}","${endKm.toFixed(0)}","${km.toFixed(0)}","${stop.isWalking ? 'Lopen' : 'Rijden'}"\n`;
+        lastOdo = endKm;
+      });
+      
+      csv += `"${date}","${formatTimestamp(sess.travelBackStartTime)}","Thuis","${lastOdo.toFixed(0)}","${sess.endOdo.toFixed(0)}","${(sess.endOdo - lastOdo).toFixed(0)}","Thuis"\n`;
+    }
+  });
+  
+  const blob = new Blob(["\uFEFF" + csv], {type: 'text/csv;charset=utf-8;'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `kilometerregistratie_${formatDateToDutch(new Date())}.csv`;
+  link.click();
+  showWarning('✅ CSV geëxporteerd');
+}
+
+document.getElementById('showPrivateKmToggle').onchange = renderKmRegistration;
+document.getElementById('exportKmCsvBtn').onclick = exportToCsv;
+
+renderKmRegistration();
+</script>
+</body>
+</html>

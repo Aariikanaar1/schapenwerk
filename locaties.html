@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Locaties - Schapenwerk</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -13,7 +14,7 @@
     button:active { transform: scale(0.97); }
     .btn-primary { background: #0077cc; color: white; }
     .btn-secondary { background: #e2e8f0; color: #1e293b; }
-    .btn-small { padding: 8px 16px; font-size: 0.75rem; }
+    .btn-small { padding: 8px 16px; font-size: 0.75rem; flex: none; }
     input { width: 100%; padding: 12px; border-radius: 20px; border: 1px solid #e2e8f0; font-size: 0.9rem; margin-top: 6px; font-family: inherit; }
     label { font-weight: 500; margin-top: 12px; display: block; font-size: 0.8rem; color: #475569; }
     .add-location-form { background: #f8fafc; border-radius: 20px; padding: 16px; margin-bottom: 20px; display: none; }
@@ -24,11 +25,14 @@
     .location-name { font-size: 1.1rem; font-weight: 600; }
     .location-coords { font-size: 0.7rem; color: #64748b; margin-top: 4px; }
     .button-group { display: flex; gap: 10px; margin-top: 12px; }
+    #locationsMap { height: 300px; border-radius: 20px; margin-bottom: 20px; background: #eef2f6; }
   </style>
 </head>
 <body>
 
 <div class="card">
+  <div id="locationsMap"></div>
+  
   <button id="showAddLocationFormBtn" class="btn-primary" style="margin-bottom: 16px;">➕ Nieuwe locatie toevoegen</button>
   
   <div id="addLocationForm" class="add-location-form">
@@ -38,9 +42,9 @@
     </div>
     <div id="coordsInput">
       <label>Breedtegraad (latitude)</label>
-      <input type="number" id="newLocationLat" step="any" placeholder="Bijv. 52.123456">
+      <input type="number" id="newLocationLat" step="any" placeholder="52.123456">
       <label>Lengtegraad (longitude)</label>
-      <input type="number" id="newLocationLng" step="any" placeholder="Bijv. 4.123456">
+      <input type="number" id="newLocationLng" step="any" placeholder="4.123456">
     </div>
     <div id="addressInput" class="address-input">
       <label>Adres</label>
@@ -50,7 +54,7 @@
     <label>Naam van de locatie</label>
     <input type="text" id="newLocationName" placeholder="Bijv. Het Wantveld">
     <label>Straal (meters)</label>
-    <input type="number" id="newLocationRadius" step="10" value="500" placeholder="500">
+    <input type="number" id="newLocationRadius" step="10" value="500">
     <div class="button-group">
       <button id="useCurrentLocationBtn" class="btn-secondary">📍 Huidige locatie</button>
       <button id="saveNewLocationBtn" class="btn-primary">✅ Opslaan</button>
@@ -61,16 +65,41 @@
   <div id="locationsManageContainer"></div>
 </div>
 
+<script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
 <script>
 let userDefinedLocations = [];
 let currentLocationType = 'coords';
+let map;
+let markers = [];
 
 function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
-function escapeHtml(s){if(!s)return'';return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;')}
-function getDistanceBetweenCoords(l1,ln1,l2,ln2){const R=6371,dLat=(l2-l1)*Math.PI/180,dLon=(ln2-ln1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(l1*Math.PI/180)*Math.cos(l2*Math.PI/180)*Math.sin(dLon/2)**2,c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));return R*c}
+function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
+function getDistanceBetweenCoords(l1,ln1,l2,ln2){ const R=6371,dLat=(l2-l1)*Math.PI/180,dLon=(ln2-ln1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(l1*Math.PI/180)*Math.cos(l2*Math.PI/180)*Math.sin(dLon/2)**2,c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); return R*c; }
 
-function loadUserLocations() { const saved = localStorage.getItem('userDefinedLocations'); if(saved) userDefinedLocations = JSON.parse(saved); renderLocationsManager(); }
-function saveUserLocations() { localStorage.setItem('userDefinedLocations', JSON.stringify(userDefinedLocations)); renderLocationsManager(); updateAllStopsWithLocationNames(); }
+function initMap() {
+  map = L.map('locationsMap').setView([52.5, 5.5], 8);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
+  updateMapMarkers();
+}
+
+function updateMapMarkers() {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  userDefinedLocations.forEach(loc => {
+    const marker = L.marker([loc.lat, loc.lng]).addTo(map);
+    marker.bindPopup(`<b>${escapeHtml(loc.name)}</b><br>📌 ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}<br>📏 Straal: ${loc.radius}m`);
+    markers.push(marker);
+  });
+  if(userDefinedLocations.length > 0) {
+    const bounds = L.latLngBounds(userDefinedLocations.map(l => [l.lat, l.lng]));
+    map.fitBounds(bounds, { padding: [50, 50] });
+  }
+}
+
+function loadUserLocations() { const saved = localStorage.getItem('userDefinedLocations'); if(saved) userDefinedLocations = JSON.parse(saved); renderLocationsManager(); updateMapMarkers(); }
+function saveUserLocations() { localStorage.setItem('userDefinedLocations', JSON.stringify(userDefinedLocations)); renderLocationsManager(); updateMapMarkers(); updateAllStopsWithLocationNames(); }
 function updateAllStopsWithLocationNames() {
   const sessions = JSON.parse(localStorage.getItem('workSessionsList')||'[]');
   let updated = false;
@@ -93,7 +122,7 @@ function updateAllStopsWithLocationNames() {
 function renderLocationsManager() {
   const container = document.getElementById('locationsManageContainer');
   if(!container) return;
-  if(!userDefinedLocations.length) { container.innerHTML = '<div class="card">📭 Nog geen locaties toegevoegd.</div>'; return; }
+  if(!userDefinedLocations.length) { container.innerHTML = '<div class="card" style="background:#f8fafc;">📭 Nog geen locaties toegevoegd.</div>'; return; }
   container.innerHTML = userDefinedLocations.map((loc, idx) => `
     <div class="location-item">
       <div class="location-name">📍 ${escapeHtml(loc.name)}</div>
@@ -177,6 +206,7 @@ saveNewLocationBtn.onclick = () => {
   showWarning(`✅ Locatie "${name}" toegevoegd!`);
 };
 
+initMap();
 loadUserLocations();
 </script>
 </body>
