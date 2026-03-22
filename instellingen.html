@@ -14,6 +14,7 @@
     button { border: none; padding: 12px 20px; border-radius: 40px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: transform 0.1s; font-family: inherit; flex: 1; min-width: 100px; }
     button:active { transform: scale(0.97); }
     .btn-primary { background: #0077cc; color: white; }
+    .btn-secondary { background: #e2e8f0; color: #1e293b; }
     .btn-small { padding: 8px 16px; font-size: 0.75rem; flex: none; }
     .toggle-switch { display: flex; align-items: center; justify-content: space-between; background: #f1f5f9; padding: 12px 16px; border-radius: 48px; margin: 15px 0; }
     .switch { position: relative; display: inline-block; width: 48px; height: 26px; }
@@ -22,10 +23,12 @@
     .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: 0.2s; border-radius: 50%; }
     input:checked + .slider { background-color: #0077cc; }
     input:checked + .slider:before { transform: translateX(22px); }
-    .logo-preview { width: 60px; height: 60px; background: #f1f5f9; border-radius: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .logo-preview { width: 80px; height: 80px; background: #f1f5f9; border-radius: 16px; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid #e2e8f0; }
+    .logo-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
     .flex-row { display: flex; gap: 12px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
     .section-title { margin-top: 24px; margin-bottom: 12px; font-size: 1.1rem; font-weight: 600; color: #0f2b3d; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
     .button-group { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+    .status-badge { font-size: 0.7rem; color: #10b981; margin-top: 5px; }
   </style>
 </head>
 <body>
@@ -47,12 +50,15 @@
   
   <div class="flex-row">
     <div id="logoPreview" class="logo-preview"></div>
-    <input type="file" id="logoUpload" accept="image/*" style="flex:1;">
+    <div style="flex:1">
+      <input type="file" id="logoUpload" accept="image/*" style="margin-top:0;">
+      <div id="logoStatus" class="status-badge"></div>
+    </div>
     <button id="clearLogoBtn" class="btn-small">Verwijder</button>
   </div>
   
   <div class="section-title">📱 Pagina's in menu</div>
-  <p style="font-size:0.75rem; color:#64748b; margin-bottom:12px;">Zet een pagina uit als je de functie niet gebruikt. Alle bestaande gegevens blijven bewaard.</p>
+  <p style="font-size:0.75rem; color:#64748b; margin-bottom:12px;">Zet een pagina uit als je de functie niet gebruikt.</p>
   
   <div class="toggle-switch"><span>🐑 Werkdag</span><label class="switch"><input type="checkbox" id="toggleWerkdag" checked><span class="slider"></span></label></div>
   <div class="toggle-switch"><span>🏠 Privé rit</span><label class="switch"><input type="checkbox" id="togglePriveRit" checked><span class="slider"></span></label></div>
@@ -74,8 +80,16 @@
   <div class="toggle-switch"><span>🏠 Automatisch werkdag afsluiten bij thuiskomst</span><label class="switch"><input type="checkbox" id="toggleAutoEndWorkday"><span class="slider"></span></label></div>
   <div class="toggle-switch"><span>🔘 Snel activeren (drie keer klikken aan/uit knop)</span><label class="switch"><input type="checkbox" id="toggleQuickActivate"><span class="slider"></span></label></div>
   
+  <div class="section-title">🏠 Thuisadres voor automatische thuiskomst</div>
+  <div class="flex-row">
+    <button id="setHomeFromAddressBtn" class="btn-secondary">📍 Gebruik huidig adres</button>
+    <button id="setHomeFromGpsBtn" class="btn-secondary">📍 Gebruik GPS locatie</button>
+    <button id="clearHomeCoordsBtn" class="btn-small">🗑️ Wis</button>
+  </div>
+  <div id="homeCoordsStatus" class="status-badge"></div>
+  
   <div class="button-group">
-    <button id="saveSettingsBtn" class="btn-primary">💾 Opslaan & Menu bijwerken</button>
+    <button id="saveSettingsBtn" class="btn-primary">💾 Opslaan</button>
   </div>
 </div>
 
@@ -105,15 +119,28 @@ function loadSettings() {
     else if(val === 'false') document.getElementById(id).checked = false;
     else document.getElementById(id).checked = true;
   });
+  
+  // Logo laden
   const logo = localStorage.getItem('companyLogo');
-  if(logo) document.getElementById('logoPreview').innerHTML = `<img src="${logo}" style="max-width:100%; max-height:100%;">`;
+  const previewDiv = document.getElementById('logoPreview');
+  const statusDiv = document.getElementById('logoStatus');
+  if(logo && logo.startsWith('data:image')) {
+    previewDiv.innerHTML = `<img src="${logo}" alt="Logo">`;
+    if(statusDiv) statusDiv.innerHTML = '✅ Logo geladen';
+  } else {
+    previewDiv.innerHTML = '<span style="font-size:24px;">📷</span>';
+    if(statusDiv) statusDiv.innerHTML = 'Geen logo';
+  }
+  
+  // Thuisadres status
+  loadHomeCoordsStatus();
 }
 
 function saveSettings() {
   fields.forEach(id => { localStorage.setItem(id, document.getElementById(id).value); });
   allToggles.forEach(id => { localStorage.setItem(id, document.getElementById(id).checked); });
   
-  showWarning('✅ Instellingen opgeslagen! Menu wordt bijgewerkt.');
+  showWarning('✅ Instellingen opgeslagen!');
   
   if(window.parent && window.parent.postMessage) {
     window.parent.postMessage({type: 'refreshMenu'}, '*');
@@ -130,15 +157,29 @@ allToggles.forEach(id => {
   if(el) el.addEventListener('change', () => { localStorage.setItem(id, el.checked); });
 });
 
+// ========== LOGO UPLOAD ==========
 document.getElementById('logoUpload').onchange = (e) => {
   const file = e.target.files[0];
+  const statusDiv = document.getElementById('logoStatus');
+  
   if(file) {
+    if(file.size > 2 * 1024 * 1024) {
+      showWarning('❌ Logo is te groot (max 2MB)');
+      if(statusDiv) statusDiv.innerHTML = '❌ Bestand te groot (max 2MB)';
+      return;
+    }
+    
     const reader = new FileReader();
     reader.onload = (ev) => {
       const logo = ev.target.result;
       localStorage.setItem('companyLogo', logo);
-      document.getElementById('logoPreview').innerHTML = `<img src="${logo}" style="max-width:100%; max-height:100%;">`;
+      document.getElementById('logoPreview').innerHTML = `<img src="${logo}" alt="Logo">`;
+      if(statusDiv) statusDiv.innerHTML = '✅ Logo opgeslagen!';
       showWarning('✅ Logo opgeslagen!');
+    };
+    reader.onerror = () => {
+      showWarning('❌ Fout bij lezen bestand');
+      if(statusDiv) statusDiv.innerHTML = '❌ Fout bij lezen';
     };
     reader.readAsDataURL(file);
   }
@@ -146,8 +187,84 @@ document.getElementById('logoUpload').onchange = (e) => {
 
 document.getElementById('clearLogoBtn').onclick = () => {
   localStorage.removeItem('companyLogo');
-  document.getElementById('logoPreview').innerHTML = '';
+  document.getElementById('logoPreview').innerHTML = '<span style="font-size:24px;">📷</span>';
+  document.getElementById('logoStatus').innerHTML = 'Logo verwijderd';
+  document.getElementById('logoUpload').value = '';
   showWarning('🗑️ Logo verwijderd');
+};
+
+// ========== THUISADRES ==========
+function loadHomeCoordsStatus() {
+  const homeCoords = localStorage.getItem('homeCoordinates');
+  const statusDiv = document.getElementById('homeCoordsStatus');
+  if(homeCoords) {
+    try {
+      const coords = JSON.parse(homeCoords);
+      statusDiv.innerHTML = `📍 Thuislocatie: ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`;
+      statusDiv.style.color = '#10b981';
+    } catch(e) {
+      statusDiv.innerHTML = '⚠️ Ongeldige thuislocatie';
+      statusDiv.style.color = '#f59e0b';
+    }
+  } else {
+    statusDiv.innerHTML = '📍 Geen thuislocatie ingesteld';
+    statusDiv.style.color = '#64748b';
+  }
+}
+
+document.getElementById('setHomeFromAddressBtn').onclick = async () => {
+  const street = document.getElementById('companyStreet').value;
+  const location = document.getElementById('companyLocation').value;
+  const fullAddress = `${street}, ${location}`;
+  
+  if(!fullAddress.trim() || fullAddress === ', ') {
+    showWarning('❌ Vul eerst je adres in (straat en postcode/plaats)');
+    return;
+  }
+  
+  showWarning('🔍 Adres wordt gezocht...');
+  
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullAddress)}&limit=1`);
+    const data = await res.json();
+    if(data && data.length) {
+      const lat = parseFloat(data[0].lat);
+      const lng = parseFloat(data[0].lon);
+      localStorage.setItem('homeCoordinates', JSON.stringify({ lat, lng }));
+      loadHomeCoordsStatus();
+      showWarning(`✅ Thuislocatie ingesteld: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+    } else {
+      showWarning('❌ Adres niet gevonden');
+    }
+  } catch(e) {
+    showWarning('❌ Fout bij zoeken adres');
+  }
+};
+
+document.getElementById('setHomeFromGpsBtn').onclick = () => {
+  if(!navigator.geolocation) {
+    showWarning('❌ GPS niet ondersteund');
+    return;
+  }
+  
+  showWarning('📍 Huidige locatie wordt opgehaald...');
+  
+  navigator.geolocation.getCurrentPosition(pos => {
+    localStorage.setItem('homeCoordinates', JSON.stringify({ 
+      lat: pos.coords.latitude, 
+      lng: pos.coords.longitude 
+    }));
+    loadHomeCoordsStatus();
+    showWarning(`✅ Thuislocatie ingesteld op huidige positie`);
+  }, () => {
+    showWarning('❌ Kon locatie niet ophalen');
+  });
+};
+
+document.getElementById('clearHomeCoordsBtn').onclick = () => {
+  localStorage.removeItem('homeCoordinates');
+  loadHomeCoordsStatus();
+  showWarning('🗑️ Thuislocatie verwijderd');
 };
 
 document.getElementById('saveSettingsBtn').onclick = saveSettings;

@@ -44,6 +44,10 @@
     .client-suggestion-item { padding: 10px 14px; cursor: pointer; }
     .client-suggestion-item:hover { background: #f1f5f9; }
     .stop-item { background: #f8fafc; border-radius: 16px; padding: 12px; margin-bottom: 12px; }
+    .km-stand-info { background: #e6f7e6; padding: 8px 12px; border-radius: 12px; margin: 10px 0; font-size: 0.8rem; }
+    .driving-status { font-size: 0.7rem; padding: 4px 8px; border-radius: 20px; display: inline-block; margin-top: 5px; }
+    .driving { background: #dc262620; color: #dc2626; }
+    .walking-status { background: #10b98120; color: #10b981; }
     @keyframes slideUp {
       from { transform: translateY(100px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
@@ -52,11 +56,6 @@
       from { transform: translateY(0); opacity: 1; }
       to { transform: translateY(100px); opacity: 0; }
     }
-    .driving-status { font-size: 0.7rem; padding: 4px 8px; border-radius: 20px; display: inline-block; margin-top: 5px; }
-    .driving { background: #dc262620; color: #dc2626; }
-    .walking-status { background: #10b98120; color: #10b981; }
-    .gps-warning { background: #fef3c7; border-left: 3px solid #f59e0b; padding: 6px 10px; border-radius: 12px; font-size: 0.7rem; margin-top: 8px; display: none; }
-    .background-timer-warning { background: #dbeafe; border-left: 3px solid #0077cc; padding: 8px 12px; border-radius: 12px; font-size: 0.7rem; margin-top: 8px; display: none; }
   </style>
 </head>
 <body>
@@ -67,8 +66,6 @@
     <div><div class="rate-label">🚗 Kilometervergoeding</div><div class="rate-value"><input type="number" id="kmRateInput" step="0.01" value="0.21" style="width:100px; padding:8px;"></div></div>
   </div>
   <div id="kmRateWarning" style="background:#fef3c7; padding:8px; border-radius:12px; margin-top:8px; font-size:0.7rem; display:none;">⚠️ Over €0,23 betaal je inkomstenbelasting</div>
-  <div id="gpsQualityWarning" class="gps-warning">📡 GPS signaal onnauwkeurig - beweging wordt mogelijk niet correct geregistreerd</div>
-  <div id="backgroundTimerWarning" class="background-timer-warning">⏱️ Timers draaien op de achtergrond. Houd deze pagina niet volledig afgesloten voor accurate tijdsregistratie.</div>
 </div>
 
 <div class="timer-card"><div class="timer-title">🚐 HEENWEG (onbetaald)</div><div class="timer-value" id="travelToDisplay">00:00:00</div><div class="button-group"><button id="travelToBtn" class="btn-start">▶ Start</button></div></div>
@@ -82,8 +79,14 @@
     <span>stappen</span>
   </div>
   <div class="speed-indicator" id="walkingStatus">📍 Niet aan het lopen</div>
-  <div id="speedStatus" class="driving-status" style="margin-top: 5px;">⚡ Snelheid: -- km/u</div>
-  <div id="gpsAccuracyStatus" style="font-size:0.6rem; color:#64748b; margin-top:3px;">📡 Nauwkeurigheid: -- m</div>
+  <div id="speedStatus" style="font-size:0.7rem; color:#64748b; margin-top:5px;">⚡ Snelheid: -- km/u</div>
+</div>
+
+<div class="km-stand-info" id="kmStandInfo">
+  📟 <strong>Kilometerstanden</strong><br>
+  Beginstand: <span id="displayStartOdo">--</span> km<br>
+  Huidige stand: <span id="displayCurrentOdo">--</span> km<br>
+  🚗 Alleen gereden kilometers tellen mee voor vergoeding
 </div>
 
 <div class="toggle-switch"><span>🗺️ GPS tracking</span><label class="switch"><input type="checkbox" id="trackingToggle" checked><span class="slider"></span></label></div>
@@ -94,9 +97,10 @@
 <label>👨‍🌾 Opdrachtgever</label>
 <div style="position:relative;"><input type="text" id="clientName" placeholder="Typ om te zoeken..."><div id="clientSuggestions" class="client-suggestions"></div></div>
 
-<label>📟 Kilometerstand</label>
+<label>📟 Begin kilometerstand (km)</label>
 <div><input type="number" id="startOdo" step="0.1" placeholder="Beginstand (km)"></div>
 <div id="autoStopsContainer"></div>
+<label>📟 Eind kilometerstand (km)</label>
 <div><input type="number" id="endOdo" step="0.1" placeholder="Eindstand (km)"></div>
 
 <label>📸 Foto's</label>
@@ -115,152 +119,64 @@ let KM_RATE = 0.21;
 let travelToSeconds = 0, travelToRunning = false, travelToStartTime = null;
 let workSeconds = 0, workRunning = false, workStartTime = null;
 let travelBackSeconds = 0, travelBackRunning = false, travelBackStartTime = null;
-let travelToInterval, workInterval, travelBackInterval;
 let startWorkdayTime = null;
 let stops = [];
-let geoWatchId = null, gpsPaused = false, lastGpsPosition = null, lastGpsPositionBefore = null;
-let totalGpsDistance = 0, totalDrivingDistance = 0;
+let geoWatchId = null, gpsPaused = false;
+let lastGpsPosition = null;
+let totalGpsDistance = 0;        // Totaal afgelegde afstand (alle beweging)
+let totalDrivingDistance = 0;     // Alleen afstand tijdens rijden (>20 km/u)
 let sessionPhotos = [];
 let routePoints = [];
 let currentSessionSteps = 0, stepCounterActive = true, isWalking = false, lastRoutePointTime = 0, lastStepTime = 0;
 let contacts = [];
 let currentSpeedKmh = 0;
-let lastTimestampUpdate = Date.now();
+let lastGpsTime = 0;
+let gpsHistory = [];
 
-// ========== ACHTERGROND TIMER SYSTEEM ==========
-// We gebruiken een combinatie van:
-// 1. setInterval die altijd draait zolang de pagina open is
-// 2. localStorage om de laatste timestamp op te slaan
-// 3. Bij herladen: bereken verstreken tijd op basis van opgeslagen starttijd
+// Kilometerstanden voor berekening
+let currentOdo = 0;  // Huidige berekende kilometerstand
 
-function updateTimersFromBackground() {
-  const now = Date.now();
-  
-  // Controleer of timers actief waren in localStorage
-  const savedState = localStorage.getItem('werkState');
-  if(savedState) {
-    try {
-      const state = JSON.parse(savedState);
-      
-      // Heenweg timer
-      if(state.travelToRunning && state.travelToStartTime) {
-        const elapsed = Math.floor((now - new Date(state.travelToStartTime).getTime()) / 1000);
-        if(elapsed > travelToSeconds) {
-          travelToSeconds = elapsed;
-          updateDisplays();
-        }
-      }
-      
-      // Werktijd timer
-      if(state.workRunning && state.workStartTime) {
-        const elapsed = Math.floor((now - new Date(state.workStartTime).getTime()) / 1000);
-        if(elapsed > workSeconds) {
-          workSeconds = elapsed;
-          updateDisplays();
-        }
-      }
-      
-      // Terugweg timer
-      if(state.travelBackRunning && state.travelBackStartTime) {
-        const elapsed = Math.floor((now - new Date(state.travelBackStartTime).getTime()) / 1000);
-        if(elapsed > travelBackSeconds) {
-          travelBackSeconds = elapsed;
-          updateDisplays();
-        }
-      }
-    } catch(e) {}
-  }
-  
-  saveWorkState();
-}
-
-// Update timers elke seconde (blijft draaien zolang pagina open is)
-setInterval(() => {
-  if(travelToRunning) {
-    travelToSeconds++;
-    updateDisplays();
-  }
-  if(workRunning) {
-    workSeconds++;
-    updateDisplays();
-  }
-  if(travelBackRunning) {
-    travelBackSeconds++;
-    updateDisplays();
-  }
-  saveWorkState();
-}, 1000);
-
-// Ook bij visibility change (tab wordt actief) updaten
-document.addEventListener('visibilitychange', () => {
-  if(!document.hidden) {
-    updateTimersFromBackground();
-    // Toon waarschuwing dat timers actief waren
-    const anyActive = travelToRunning || workRunning || travelBackRunning;
-    if(anyActive) {
-      const warningDiv = document.getElementById('backgroundTimerWarning');
-      if(warningDiv) {
-        warningDiv.style.display = 'block';
-        setTimeout(() => {
-          if(warningDiv) warningDiv.style.display = 'none';
-        }, 5000);
-      }
-    }
-  }
-});
-
-// ========== STAPPENTELLER ACHTERGROND OPLOSSING ==========
-// Stappenteller blijft niet draaien op achtergrond. Oplossing:
-// 1. Gebruik Page Visibility API om bij terugkomst te checken of er stappen zijn gemist
-// 2. Gebruik een benadering op basis van GPS beweging en tijd
-let lastStepCheckTime = Date.now();
-let estimatedSteps = 0;
-
-function estimateStepsFromMovement() {
-  // Als GPS actief is en we lopen, schat stappen op basis van afstand
-  if(isWalking && lastGpsPosition && lastGpsPositionBefore) {
-    const dist = getDistanceBetweenCoords(lastGpsPosition.lat, lastGpsPosition.lng, 
-                                          lastGpsPositionBefore.lat, lastGpsPositionBefore.lng) * 1000;
-    if(dist > 0 && dist < 100) { // Max 100 meter tussen metingen
-      // Gemiddeld 0.75 meter per stap
-      const estimatedNewSteps = Math.floor(dist / 0.75);
-      if(estimatedNewSteps > 0) {
-        currentSessionSteps += estimatedNewSteps;
-        document.getElementById('stepCountDisplay').innerText = currentSessionSteps;
-        saveWorkState();
-      }
-    }
-  }
-}
-
-// Check bij terugkomst of er stappen gemist zijn
-document.addEventListener('visibilitychange', () => {
-  if(!document.hidden) {
-    estimateStepsFromMovement();
-  }
-});
-
-// ========== TIMER FUNCTIES ==========
-function formatTime(s){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`}
-function updateDisplays(){
-  document.getElementById('travelToDisplay').innerText=formatTime(travelToSeconds);
-  document.getElementById('workTimeDisplay').innerText=formatTime(workSeconds);
-  document.getElementById('travelBackDisplay').innerText=formatTime(travelBackSeconds);
-}
-
-function getDistanceBetweenCoords(l1,ln1,l2,ln2){const R=6371,dLat=(l2-l1)*Math.PI/180,dLon=(ln2-ln1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(l1*Math.PI/180)*Math.cos(l2*Math.PI/180)*Math.sin(dLon/2)**2,c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));return R*c}
-
-function formatTimestamp(d){if(!d)return'—';return new Date(d).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}
-function formatDateToDutch(d){return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`}
-function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
-
+// ========== HULPFUNCTIES ==========
 function showWarning(msg){ 
   if(window.parent && window.parent.postMessage){
     window.parent.postMessage({type:'warning',message:msg},'*');
   }else{alert(msg);}
 }
 
-// ========== TIMER CONTROLES ==========
+function formatTime(s){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`}
+function formatTimestamp(d){if(!d)return'—';return new Date(d).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}
+function formatDateToDutch(d){return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`}
+function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
+
+function updateDisplays(){
+  document.getElementById('travelToDisplay').innerText=formatTime(travelToSeconds);
+  document.getElementById('workTimeDisplay').innerText=formatTime(workSeconds);
+  document.getElementById('travelBackDisplay').innerText=formatTime(travelBackSeconds);
+}
+
+function getDistanceBetweenCoords(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLon/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
+
+// Update kilometerstand display
+function updateKmDisplay() {
+  document.getElementById('displayStartOdo').innerText = (parseFloat(document.getElementById('startOdo').value) || 0).toFixed(1);
+  document.getElementById('displayCurrentOdo').innerText = currentOdo.toFixed(1);
+}
+
+// Bereken huidige kilometerstand op basis van beginstand + gereden kilometers
+function updateCurrentOdo() {
+  const startOdo = parseFloat(document.getElementById('startOdo').value) || 0;
+  currentOdo = startOdo + totalDrivingDistance;
+  updateKmDisplay();
+}
+
+// ========== TIMER FUNCTIES ==========
 function startTravelTo(){
   if(workRunning) stopWork();
   if(travelBackRunning) stopTravelBack();
@@ -274,7 +190,6 @@ function startTravelTo(){
 
 function stopTravelTo(){
   travelToRunning = false;
-  travelToStartTime = null;
   updateButtons();
   saveWorkState();
   showWarning('🚐 Heenweg timer gestopt');
@@ -293,7 +208,6 @@ function startWork(){
 
 function stopWork(){
   workRunning = false;
-  workStartTime = null;
   updateButtons();
   saveWorkState();
   showWarning('🐏 Werktijd timer gestopt');
@@ -312,7 +226,6 @@ function startTravelBack(){
 
 function stopTravelBack(){
   travelBackRunning = false;
-  travelBackStartTime = null;
   updateButtons();
   saveWorkState();
   showWarning('🚐 Terugweg timer gestopt');
@@ -340,6 +253,14 @@ document.getElementById('travelToBtn').onclick = () => travelToRunning ? stopTra
 document.getElementById('workBtn').onclick = () => workRunning ? stopWork() : startWork();
 document.getElementById('travelBackBtn').onclick = () => travelBackRunning ? stopTravelBack() : startTravelBack();
 
+// ========== TIMER INTERVALS ==========
+setInterval(() => {
+  if(travelToRunning) { travelToSeconds++; updateDisplays(); }
+  if(workRunning) { workSeconds++; updateDisplays(); }
+  if(travelBackRunning) { travelBackSeconds++; updateDisplays(); }
+  saveWorkState();
+}, 1000);
+
 // ========== LOCATIE HERKENNING ==========
 async function getDetailedLocationName(lat, lng) {
   const userDefinedLocations = JSON.parse(localStorage.getItem('userDefinedLocations') || '[]');
@@ -359,44 +280,66 @@ async function getDetailedLocationName(lat, lng) {
   });
 }
 
-// ========== GPS FUNCTIES ==========
+// ========== GPS FUNCTIES - ALLEEN RIJDEN TELT ==========
 function processGpsPosition(p){
   if(!document.getElementById('trackingToggle')?.checked) return;
   if(gpsPaused) return;
+  
   const now = Date.now();
   const speedMs = p.coords.speed || 0;
   currentSpeedKmh = speedMs * 3.6;
   
+  // Alleen snelheid boven 20 km/u = rijden
+  const isDriving = currentSpeedKmh > 20;
+  
   const np = { 
     lat: p.coords.latitude, 
     lng: p.coords.longitude,
-    speed: speedMs,
-    accuracy: p.coords.accuracy
+    speed: currentSpeedKmh,
+    timestamp: now
   };
   
   // Update snelheidsdisplay
   const speedDisplay = document.getElementById('speedStatus');
   if(speedDisplay) {
-    speedDisplay.innerHTML = `⚡ ${currentSpeedKmh.toFixed(1)} km/u`;
+    const status = isDriving ? '🚗 Rijden' : (currentSpeedKmh > 5 ? '🏃 Rennen/Lopen' : '📍 Stilstaand');
+    speedDisplay.innerHTML = `⚡ ${currentSpeedKmh.toFixed(1)} km/u - ${status}`;
   }
   
-  lastGpsPosition = np;
-  
-  if(lastGpsPositionBefore){
-    const dist = getDistanceBetweenCoords(np.lat, np.lng, lastGpsPositionBefore.lat, lastGpsPositionBefore.lng);
-    if(dist < 0.2){
-      totalGpsDistance += dist;
-      if(currentSpeedKmh > 20){
-        totalDrivingDistance += dist;
-      }
-      if(now - lastRoutePointTime >= 10000){
-        routePoints.push({lat:np.lat, lng:np.lng, type: currentSpeedKmh > 20 ? 'driving' : (isWalking ? 'walking' : 'standing'), time:now, speed: currentSpeedKmh});
-        lastRoutePointTime=now;
-        saveWorkState();
+  // Alleen afstand toevoegen als we een vorige positie hebben
+  if(lastGpsPosition && lastGpsPosition.timestamp) {
+    const timeDiff = (now - lastGpsPosition.timestamp) / 1000;
+    if(timeDiff > 0 && timeDiff < 30) { // Max 30 seconden tussen metingen
+      const distance = getDistanceBetweenCoords(np.lat, np.lng, lastGpsPosition.lat, lastGpsPosition.lng);
+      
+      if(distance < 0.5) { // Max 500m tussen metingen (realistisch)
+        totalGpsDistance += distance;
+        
+        // ALLEEN als we aan het rijden zijn (>20 km/u) tellen we kilometers voor vergoeding
+        if(isDriving) {
+          totalDrivingDistance += distance;
+          currentOdo = (parseFloat(document.getElementById('startOdo').value) || 0) + totalDrivingDistance;
+          updateKmDisplay();
+        }
+        
+        // Routepunt opslaan voor kaart (elke 10 seconden)
+        if(now - lastRoutePointTime >= 10000) {
+          routePoints.push({
+            lat: np.lat, 
+            lng: np.lng, 
+            type: isDriving ? 'driving' : (currentSpeedKmh > 5 ? 'walking' : 'standing'),
+            time: now, 
+            speed: currentSpeedKmh
+          });
+          lastRoutePointTime = now;
+          saveWorkState();
+        }
       }
     }
   }
-  lastGpsPositionBefore = np;
+  
+  lastGpsPosition = np;
+  saveWorkState();
 }
 
 function startGeoLocation(){
@@ -406,9 +349,10 @@ function startGeoLocation(){
     return;
   }
   document.getElementById('gpsStatusMsg').innerText='📍 GPS actief';
-  geoWatchId = navigator.geolocation.watchPosition(processGpsPosition, err => {
-    document.getElementById('gpsStatusMsg').innerText='❌ GPS fout';
-  }, {enableHighAccuracy:true, maximumAge:5000, timeout:15000});
+  geoWatchId = navigator.geolocation.watchPosition(processGpsPosition, 
+    err => { document.getElementById('gpsStatusMsg').innerText='❌ GPS fout: ' + err.message; },
+    { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+  );
 }
 
 function stopGeoLocation(){
@@ -417,6 +361,208 @@ function stopGeoLocation(){
     geoWatchId = null;
   }
 }
+
+// ========== UI FUNCTIES ==========
+function renderStopsList(){
+  const c=document.getElementById('autoStopsContainer');
+  if(!c)return;
+  if(!stops.length){
+    c.innerHTML='<div class="card" style="padding:12px;">📍 Nog geen stops</div>';
+    return;
+  }
+  c.innerHTML=stops.map((s,i)=>`<div class="stop-item"><div><strong>📍 ${escapeHtml(s.location)}</strong></div><div style="font-size:0.7rem">🕒 ${formatTimestamp(s.startTime)}</div><div style="font-size:0.7rem">📟 ${s.odoAtStop.toFixed(1)} km</div><button onclick="removeStop(${i})" class="btn-small" style="margin-top:8px; background:#ef4444;">🗑️ Verwijder</button></div>`).join('');
+}
+window.removeStop=i=>{stops.splice(i,1);renderStopsList();saveWorkState()};
+
+function renderPhotoList(){
+  const c=document.getElementById('photoPreview');
+  if(!c)return;
+  if(!sessionPhotos.length){c.innerHTML='';return}
+  c.innerHTML=sessionPhotos.map((p,i)=>`<div class="photo-thumb"><img src="${p.dataUrl}" onclick="window.open('${p.dataUrl}')"><div class="photo-delete" onclick="removePhoto(${i})">✕</div></div>`).join('');
+}
+window.removePhoto=i=>{sessionPhotos.splice(i,1);renderPhotoList();saveWorkState()};
+function addPhoto(d){sessionPhotos.push({dataUrl:d,timestamp:new Date().toISOString()});renderPhotoList();saveWorkState()}
+document.getElementById('takePhotoBtn').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='image/*';i.capture='environment';i.onchange=e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>addPhoto(ev.target.result);r.readAsDataURL(f)}};i.click()};
+document.getElementById('uploadPhotoBtn').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='image/*';i.onchange=e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>addPhoto(ev.target.result);r.readAsDataURL(f)}};i.click()};
+
+document.getElementById('addLocationBtn').onclick=async()=>{
+  if(lastGpsPosition){
+    const locName = await getDetailedLocationName(lastGpsPosition.lat, lastGpsPosition.lng);
+    const startOdo = parseFloat(document.getElementById('startOdo').value) || 0;
+    stops.push({
+      location: locName,
+      startTime: new Date(),
+      endTime: new Date(),
+      odoAtStop: currentOdo,
+      lat: lastGpsPosition.lat,
+      lng: lastGpsPosition.lng,
+      isWalking: currentSpeedKmh <= 20 && currentSpeedKmh > 5
+    });
+    renderStopsList();
+    saveWorkState();
+    
+    // Automatisch overschakelen naar werktijd als we onderweg waren
+    if(travelToRunning && !workRunning && !travelBackRunning){
+      stopTravelTo();
+      startWork();
+      showWarning('📍 Stop geregistreerd! Automatisch overgeschakeld naar werktijd.');
+    }
+  }
+};
+
+// Beginstand wijziging
+document.getElementById('startOdo').addEventListener('change', () => {
+  updateCurrentOdo();
+  saveWorkState();
+});
+
+// Eindstand handmatig wijzigen
+document.getElementById('endOdo').addEventListener('change', () => {
+  saveWorkState();
+});
+
+// ========== OPSLAAN & LADEN ==========
+function saveWorkState(){
+  const startOdoVal = parseFloat(document.getElementById('startOdo').value) || 0;
+  updateCurrentOdo();
+  
+  localStorage.setItem('werkState',JSON.stringify({
+    travelToSeconds, travelToRunning, travelToStartTime,
+    workSeconds, workRunning, workStartTime,
+    travelBackSeconds, travelBackRunning, travelBackStartTime,
+    startWorkdayTime,
+    clientName: document.getElementById('clientName')?.value || '',
+    startOdo: startOdoVal,
+    endOdo: document.getElementById('endOdo')?.value || '',
+    workNotes: document.getElementById('workNotes')?.value || '',
+    stops, totalGpsDistance, totalDrivingDistance, sessionPhotos,
+    routePoints, currentSessionSteps, currentOdo
+  }));
+}
+
+function loadWorkState(){
+  const s=localStorage.getItem('werkState');
+  if(s) try {
+    const d=JSON.parse(s);
+    travelToSeconds = d.travelToSeconds || 0;
+    travelToRunning = d.travelToRunning || false;
+    travelToStartTime = d.travelToStartTime;
+    workSeconds = d.workSeconds || 0;
+    workRunning = d.workRunning || false;
+    workStartTime = d.workStartTime;
+    travelBackSeconds = d.travelBackSeconds || 0;
+    travelBackRunning = d.travelBackRunning || false;
+    travelBackStartTime = d.travelBackStartTime;
+    startWorkdayTime = d.startWorkdayTime;
+    if(document.getElementById('clientName')) document.getElementById('clientName').value = d.clientName || '';
+    if(document.getElementById('startOdo')) document.getElementById('startOdo').value = d.startOdo || '';
+    if(document.getElementById('endOdo')) document.getElementById('endOdo').value = d.endOdo || '';
+    if(document.getElementById('workNotes')) document.getElementById('workNotes').value = d.workNotes || '';
+    stops = d.stops || [];
+    totalGpsDistance = d.totalGpsDistance || 0;
+    totalDrivingDistance = d.totalDrivingDistance || 0;
+    sessionPhotos = d.sessionPhotos || [];
+    routePoints = d.routePoints || [];
+    currentSessionSteps = d.currentSessionSteps || 0;
+    currentOdo = d.currentOdo || (parseFloat(document.getElementById('startOdo').value) || 0);
+    
+    updateDisplays();
+    updateButtons();
+    renderStopsList();
+    renderPhotoList();
+    updateKmDisplay();
+    document.getElementById('stepCountDisplay').innerText = currentSessionSteps;
+  } catch(e) {}
+}
+
+// ========== EINDE WERKDAG ==========
+function endWorkday() {
+  const startOdo = parseFloat(document.getElementById('startOdo').value) || 0;
+  const endOdo = parseFloat(document.getElementById('endOdo').value) || (startOdo + totalDrivingDistance);
+  const totalDrivenKm = endOdo - startOdo;
+  
+  // Gebruik de handmatige eindstand of de berekende waarde
+  const finalDrivingKm = totalDrivingDistance > 0 ? totalDrivingDistance : totalDrivenKm;
+  
+  const session = {
+    id: Date.now(),
+    startWorkdayTime: startWorkdayTime || new Date().toISOString(),
+    startWorkTime: workStartTime,
+    endWorkTime: new Date().toISOString(),
+    travelToStartTime: travelToStartTime,
+    travelBackStartTime: travelBackStartTime,
+    client: document.getElementById('clientName').value.trim() || 'Onbekend',
+    travelToSeconds: travelToSeconds,
+    workSeconds: workSeconds,
+    travelBackSeconds: travelBackSeconds,
+    startOdo: startOdo,
+    endOdo: endOdo,
+    totalKm: totalGpsDistance,
+    totalDrivingKm: finalDrivingKm,
+    notes: document.getElementById('workNotes').value || '',
+    routePoints: [...routePoints],
+    stops: [...stops],
+    photos: [...sessionPhotos],
+    totalSteps: currentSessionSteps,
+    totalEarnings: (workSeconds / 3600) * HOURLY_RATE,
+    kmCompensation: finalDrivingKm * KM_RATE,
+    totalPayout: ((workSeconds / 3600) * HOURLY_RATE) + (finalDrivingKm * KM_RATE),
+    hourlyRate: HOURLY_RATE,
+    kmRate: KM_RATE
+  };
+  
+  // Opslaan
+  let sessions = JSON.parse(localStorage.getItem('workSessionsList') || '[]');
+  sessions.push(session);
+  localStorage.setItem('workSessionsList', JSON.stringify(sessions));
+  
+  // Stappen opslaan
+  let stepStats = JSON.parse(localStorage.getItem('stepStats') || '[]');
+  stepStats.push({date: new Date().toISOString(), steps: currentSessionSteps, sessionId: session.id});
+  localStorage.setItem('stepStats', JSON.stringify(stepStats));
+  
+  // Alles resetten
+  travelToSeconds = 0;
+  workSeconds = 0;
+  travelBackSeconds = 0;
+  travelToRunning = false;
+  workRunning = false;
+  travelBackRunning = false;
+  travelToStartTime = null;
+  workStartTime = null;
+  travelBackStartTime = null;
+  startWorkdayTime = null;
+  stops = [];
+  sessionPhotos = [];
+  totalGpsDistance = 0;
+  totalDrivingDistance = 0;
+  routePoints = [];
+  currentSessionSteps = 0;
+  currentOdo = 0;
+  
+  if(document.getElementById('endOdo')) document.getElementById('endOdo').value = '';
+  if(document.getElementById('workNotes')) document.getElementById('workNotes').value = '';
+  
+  renderStopsList();
+  renderPhotoList();
+  updateDisplays();
+  updateButtons();
+  updateKmDisplay();
+  saveWorkState();
+  
+  // Beginstand voor volgende dag instellen op eindstand
+  if(document.getElementById('startOdo')) {
+    document.getElementById('startOdo').value = endOdo;
+    updateCurrentOdo();
+  }
+  
+  document.getElementById('workStatusMsg').innerHTML = '✅ Werkdag opgeslagen! ' + 
+    `Gereden: ${finalDrivingKm.toFixed(1)} km, Vergoeding: € ${(finalDrivingKm * KM_RATE).toFixed(2)}`;
+  
+  showWarning(`✅ Werkdag opgeslagen! ${finalDrivingKm.toFixed(1)} km gereden, € ${(finalDrivingKm * KM_RATE).toFixed(2)} kilometervergoeding`);
+}
+
+document.getElementById('endWorkdayBtn').onclick = endWorkday;
 
 // ========== STAPPENTELLER ==========
 if (window.DeviceMotionEvent) {
@@ -454,205 +600,6 @@ if (window.DeviceMotionEvent) {
     }
   });
 }
-
-// ========== UI FUNCTIES ==========
-function renderStopsList(){
-  const c=document.getElementById('autoStopsContainer');
-  if(!c)return;
-  if(!stops.length){c.innerHTML='<div class="card" style="padding:12px;">📍 Nog geen stops</div>';return}
-  c.innerHTML=stops.map((s,i)=>`<div class="stop-item"><div><strong>📍 ${escapeHtml(s.location)}</strong></div><div style="font-size:0.7rem">🕒 ${formatTimestamp(s.startTime)}</div><button onclick="removeStop(${i})" class="btn-small" style="margin-top:8px; background:#ef4444;">🗑️ Verwijder</button></div>`).join('');
-}
-window.removeStop=i=>{stops.splice(i,1);renderStopsList();saveWorkState()};
-
-function renderPhotoList(){
-  const c=document.getElementById('photoPreview');
-  if(!c)return;
-  if(!sessionPhotos.length){c.innerHTML='';return}
-  c.innerHTML=sessionPhotos.map((p,i)=>`<div class="photo-thumb"><img src="${p.dataUrl}" onclick="window.open('${p.dataUrl}')"><div class="photo-delete" onclick="removePhoto(${i})">✕</div></div>`).join('');
-}
-window.removePhoto=i=>{sessionPhotos.splice(i,1);renderPhotoList();saveWorkState()};
-function addPhoto(d){sessionPhotos.push({dataUrl:d,timestamp:new Date().toISOString()});renderPhotoList();saveWorkState()}
-document.getElementById('takePhotoBtn').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='image/*';i.capture='environment';i.onchange=e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>addPhoto(ev.target.result);r.readAsDataURL(f)}};i.click()};
-document.getElementById('uploadPhotoBtn').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='image/*';i.onchange=e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>addPhoto(ev.target.result);r.readAsDataURL(f)}};i.click()};
-
-document.getElementById('addLocationBtn').onclick=async()=>{
-  if(lastGpsPosition){
-    const locName = await getDetailedLocationName(lastGpsPosition.lat, lastGpsPosition.lng);
-    const startOdo = parseFloat(document.getElementById('startOdo').value) || 0;
-    stops.push({location:locName,startTime:new Date(),endTime:new Date(),startOdo:startOdo+totalGpsDistance,endOdo:startOdo+totalGpsDistance,lat:lastGpsPosition.lat,lng:lastGpsPosition.lng,isWalking:isWalking});
-    renderStopsList();saveWorkState();
-    if(travelToRunning && !workRunning && !travelBackRunning){stopTravelTo();startWork();showWarning('📍 Stop geregistreerd! Automatisch overgeschakeld naar werktijd.');}
-  }
-};
-
-// ========== OPSLAAN & LADEN ==========
-function saveWorkState(){
-  localStorage.setItem('werkState',JSON.stringify({
-    travelToSeconds, travelToRunning, travelToStartTime,
-    workSeconds, workRunning, workStartTime,
-    travelBackSeconds, travelBackRunning, travelBackStartTime,
-    startWorkdayTime,
-    clientName: document.getElementById('clientName')?.value || '',
-    startOdo: document.getElementById('startOdo')?.value || '',
-    endOdo: document.getElementById('endOdo')?.value || '',
-    workNotes: document.getElementById('workNotes')?.value || '',
-    stops, totalGpsDistance, totalDrivingDistance, sessionPhotos,
-    routePoints, currentSessionSteps
-  }));
-}
-
-function loadWorkState(){
-  const s=localStorage.getItem('werkState');
-  if(s) try {
-    const d=JSON.parse(s);
-    travelToSeconds = d.travelToSeconds || 0;
-    travelToRunning = d.travelToRunning || false;
-    travelToStartTime = d.travelToStartTime;
-    workSeconds = d.workSeconds || 0;
-    workRunning = d.workRunning || false;
-    workStartTime = d.workStartTime;
-    travelBackSeconds = d.travelBackSeconds || 0;
-    travelBackRunning = d.travelBackRunning || false;
-    travelBackStartTime = d.travelBackStartTime;
-    startWorkdayTime = d.startWorkdayTime;
-    if(document.getElementById('clientName')) document.getElementById('clientName').value = d.clientName || '';
-    if(document.getElementById('startOdo')) document.getElementById('startOdo').value = d.startOdo || '';
-    if(document.getElementById('endOdo')) document.getElementById('endOdo').value = d.endOdo || '';
-    if(document.getElementById('workNotes')) document.getElementById('workNotes').value = d.workNotes || '';
-    stops = d.stops || [];
-    totalGpsDistance = d.totalGpsDistance || 0;
-    totalDrivingDistance = d.totalDrivingDistance || 0;
-    sessionPhotos = d.sessionPhotos || [];
-    routePoints = d.routePoints || [];
-    currentSessionSteps = d.currentSessionSteps || 0;
-    
-    updateDisplays();
-    updateButtons();
-    renderStopsList();
-    renderPhotoList();
-    document.getElementById('stepCountDisplay').innerText = currentSessionSteps;
-  } catch(e) {}
-}
-
-// ========== EINDE WERKDAG ==========
-function endWorkday() {
-  console.log('endWorkday called');
-  
-  // Controleer of er een actieve werkdag is
-  const hasActiveTimers = travelToRunning || workRunning || travelBackRunning;
-  const hasWorkSeconds = workSeconds > 0;
-  const hasStops = stops.length > 0;
-  
-  if(!hasWorkSeconds && !hasStops && !hasActiveTimers) {
-    if(!confirm('Er lijkt geen actieve werkdag te zijn. Wil je toch doorgaan?')) {
-      return;
-    }
-  }
-  
-  const totalKm = totalGpsDistance;
-  const session = {
-    id: Date.now(),
-    startWorkdayTime: startWorkdayTime || new Date().toISOString(),
-    startWorkTime: workStartTime,
-    endWorkTime: new Date().toISOString(),
-    travelToStartTime: travelToStartTime,
-    travelBackStartTime: travelBackStartTime,
-    client: document.getElementById('clientName').value.trim() || 'Onbekend',
-    travelToSeconds: travelToSeconds,
-    workSeconds: workSeconds,
-    travelBackSeconds: travelBackSeconds,
-    startOdo: parseFloat(document.getElementById('startOdo').value) || 0,
-    endOdo: parseFloat(document.getElementById('endOdo').value) || 0,
-    totalKm: totalKm,
-    totalDrivingKm: totalDrivingDistance,
-    notes: document.getElementById('workNotes').value || '',
-    routePoints: [...routePoints],
-    stops: [...stops],
-    photos: [...sessionPhotos],
-    totalSteps: currentSessionSteps,
-    totalEarnings: (workSeconds / 3600) * HOURLY_RATE,
-    kmCompensation: totalDrivingDistance * KM_RATE,
-    totalPayout: ((workSeconds / 3600) * HOURLY_RATE) + (totalDrivingDistance * KM_RATE),
-    hourlyRate: HOURLY_RATE,
-    kmRate: KM_RATE
-  };
-  
-  console.log('Session to save:', session);
-  
-  // Bestaande sessies laden en nieuwe toevoegen
-  let sessions = [];
-  const existingSessions = localStorage.getItem('workSessionsList');
-  if(existingSessions) {
-    try {
-      sessions = JSON.parse(existingSessions);
-    } catch(e) {
-      console.error('Error parsing sessions:', e);
-      sessions = [];
-    }
-  }
-  sessions.push(session);
-  localStorage.setItem('workSessionsList', JSON.stringify(sessions));
-  console.log('Saved sessions:', sessions.length);
-  
-  // Stappen opslaan
-  let stepStats = [];
-  const existingSteps = localStorage.getItem('stepStats');
-  if(existingSteps) {
-    try {
-      stepStats = JSON.parse(existingSteps);
-    } catch(e) {
-      stepStats = [];
-    }
-  }
-  stepStats.push({date: new Date().toISOString(), steps: currentSessionSteps, sessionId: session.id});
-  localStorage.setItem('stepStats', JSON.stringify(stepStats));
-  
-  // Alles resetten
-  travelToSeconds = 0;
-  workSeconds = 0;
-  travelBackSeconds = 0;
-  travelToRunning = false;
-  workRunning = false;
-  travelBackRunning = false;
-  travelToStartTime = null;
-  workStartTime = null;
-  travelBackStartTime = null;
-  startWorkdayTime = null;
-  stops = [];
-  sessionPhotos = [];
-  totalGpsDistance = 0;
-  totalDrivingDistance = 0;
-  routePoints = [];
-  currentSessionSteps = 0;
-  
-  if(document.getElementById('endOdo')) document.getElementById('endOdo').value = '';
-  if(document.getElementById('workNotes')) document.getElementById('workNotes').value = '';
-  
-  renderStopsList();
-  renderPhotoList();
-  updateDisplays();
-  updateButtons();
-  saveWorkState();
-  
-  document.getElementById('workStatusMsg').innerHTML = '✅ Werkdag opgeslagen!';
-  
-  // Beginstand voor volgende dag instellen op eindstand van laatste werkdag
-  const updatedSessions = JSON.parse(localStorage.getItem('workSessionsList') || '[]');
-  if(updatedSessions.length > 0 && document.getElementById('startOdo')) {
-    const lastSession = updatedSessions[updatedSessions.length - 1];
-    if(lastSession.endOdo) {
-      document.getElementById('startOdo').value = lastSession.endOdo;
-      saveWorkState();
-    }
-  }
-  
-  showWarning('✅ Werkdag opgeslagen!');
-}
-
-document.getElementById('endWorkdayBtn').onclick = function() {
-  console.log('End workday button clicked');
-  endWorkday();
-};
 
 // ========== CONTACTEN ==========
 function loadContacts(){const s=localStorage.getItem('contacts');if(s)contacts=JSON.parse(s);}
@@ -696,6 +643,7 @@ document.getElementById('resumeGpsBtn').onclick=()=>{gpsPaused=false;document.ge
 // ========== INIT ==========
 loadWorkState();
 loadToggleStates();
+updateCurrentOdo();
 </script>
 </body>
 </html>
