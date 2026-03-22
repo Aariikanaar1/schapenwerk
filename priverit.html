@@ -80,7 +80,13 @@ let privateIsWalking = false;
 let privateLastStepTime = 0;
 let privateCurrentSteps = 0;
 
-function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+function showWarning(msg){ 
+  if(window.parent && window.parent.postMessage) {
+    window.parent.postMessage({type:'warning',message:msg},'*');
+  } else {
+    alert(msg);
+  }
+}
 function formatTimestamp(d){ if(!d) return '—'; return new Date(d).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'}); }
 function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
 
@@ -202,6 +208,7 @@ async function startPrivateRit() {
   document.getElementById('privateStatusMsg').innerHTML = '🏠 Privé rit actief';
   if(document.getElementById('privateTrackingToggle').checked) startPrivateGeoLocation();
   savePrivateState();
+  showWarning('🏁 Privé rit gestart');
 }
 
 async function stopPrivateRit() {

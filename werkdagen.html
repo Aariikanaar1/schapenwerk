@@ -12,10 +12,13 @@
     .card { background: white; border-radius: 24px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
     .month-selector { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
     button { border: none; padding: 10px 20px; border-radius: 40px; font-weight: 600; font-size: 0.85rem; cursor: pointer; font-family: inherit; }
+    button:active { transform: scale(0.97); }
     .btn-primary { background: #0077cc; color: white; }
+    .btn-danger { background: #ef4444; color: white; }
     .btn-secondary { background: #e2e8f0; color: #1e293b; }
+    .btn-small { padding: 6px 12px; font-size: 0.7rem; }
     select, input { padding: 10px; border-radius: 40px; border: 1px solid #e2e8f0; font-family: inherit; }
-    .session-item { background: white; border-radius: 20px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .session-item { background: white; border-radius: 20px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); position: relative; }
     .session-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
     .client-badge { background: #e0e7ff; color: #1e3a8a; padding: 4px 12px; border-radius: 20px; font-size: 0.7rem; font-weight: 500; }
     .time-point { font-size: 0.7rem; color: #4a627a; margin: 4px 0; font-family: monospace; background: #f8fafc; padding: 4px 8px; border-radius: 12px; display: inline-block; margin-right: 6px; }
@@ -23,6 +26,9 @@
     .map-thumb { height: 180px; border-radius: 16px; margin-top: 12px; background: #eef2f6; overflow: hidden; }
     .photo-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
     .photo-thumb { width: 60px; height: 60px; object-fit: cover; border-radius: 12px; cursor: pointer; }
+    .session-checkbox { position: absolute; top: 16px; right: 16px; width: 24px; height: 24px; cursor: pointer; }
+    .delete-bar { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+    .selected-count { background: #e2e8f0; padding: 8px 16px; border-radius: 40px; font-size: 0.8rem; }
   </style>
 </head>
 <body>
@@ -39,6 +45,15 @@
     <button id="applyMonthFilterBtn" class="btn-primary">🔍 Filter</button>
     <button id="resetMonthFilterBtn" class="btn-secondary">📅 Deze maand</button>
   </div>
+  
+  <div class="delete-bar" id="deleteBar" style="display: none;">
+    <span class="selected-count" id="selectedCount">0 geselecteerd</span>
+    <button id="deleteSelectedBtn" class="btn-danger">🗑️ Verwijder geselecteerd</button>
+    <button id="cancelSelectionBtn" class="btn-secondary">Annuleren</button>
+  </div>
+  
+  <button id="selectModeBtn" class="btn-secondary" style="margin-bottom: 16px;">☑️ Selecteer werkdagen</button>
+  
   <div id="sessionsContainer"></div>
 </div>
 
@@ -47,7 +62,16 @@
 let HOURLY_RATE = 25.00, KM_RATE = 0.21;
 let currentFilterMonth = new Date().getMonth();
 let currentFilterYear = new Date().getFullYear();
+let selectMode = false;
+let selectedSessions = new Set();
 
+function showWarning(msg){ 
+  if(window.parent && window.parent.postMessage) {
+    window.parent.postMessage({type:'warning',message:msg},'*');
+  } else {
+    alert(msg);
+  }
+}
 function formatTimestamp(d){ if(!d) return '—'; return new Date(d).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'}); }
 function formatDateToDutch(d){ return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
 function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
@@ -68,6 +92,7 @@ function renderFilteredSessions() {
   });
   renderSessionsList(filtered);
 }
+
 function renderSessionsList(sessions) {
   const container = document.getElementById('sessionsContainer');
   if(!container) return;
@@ -75,8 +100,10 @@ function renderSessionsList(sessions) {
     container.innerHTML = '<div class="card">📭 Geen werkdagen in deze maand</div>'; 
     return; 
   }
-  container.innerHTML = sessions.slice().reverse().map(s => { 
+  
+  container.innerHTML = sessions.map(s => { 
     const d = new Date(s.startWorkdayTime); 
+    const sessionId = s.id;
     const dateStr = isNaN(d.getTime()) ? 'Onbekend' : d.toLocaleDateString('nl-NL'); 
     const total = (s.workSeconds/3600)*(s.hourlyRate||HOURLY_RATE)+(s.totalDrivingKm||0)*(s.kmRate||KM_RATE);
     const travelStart = formatTimestamp(s.travelToStartTime || s.startWorkdayTime);
@@ -85,6 +112,7 @@ function renderSessionsList(sessions) {
     const travelEnd = formatTimestamp(s.travelBackStartTime);
     const stepsHtml = s.totalSteps ? `<div class="time-point">👣 ${s.totalSteps.toLocaleString()} stappen</div>` : '';
     const photosHtml = s.photos?.length ? `<div class="photo-list">${s.photos.map(p => `<img src="${p.dataUrl}" class="photo-thumb" onclick="window.open('${p.dataUrl}')">`).join('')}</div>` : '';
+    const checkboxHtml = selectMode ? `<input type="checkbox" class="session-checkbox" data-id="${sessionId}" ${selectedSessions.has(sessionId) ? 'checked' : ''}>` : '';
     
     let locs = '';
     if(s.stops && s.stops.length) {
@@ -92,7 +120,8 @@ function renderSessionsList(sessions) {
       locs = `<div style="margin-top:8px"><strong>📍 Locaties:</strong><br>${unique.map(l => `&nbsp;&nbsp;${l.isWalking ? '🚶‍♂️' : '📍'} ${escapeHtml(l.location)}`).join('<br>')}</div>`;
     }
     
-    return `<div class="session-item">
+    return `<div class="session-item" data-id="${sessionId}">
+      ${checkboxHtml}
       <div class="session-header"><strong>📅 ${dateStr}</strong><span class="client-badge">${escapeHtml(s.client||'Onbekend')}</span></div>
       <div>${stepsHtml}<span class="time-point">🚐 Vertrek: ${travelStart}</span><span class="time-point">🐏 Werk start: ${workStart}</span><span class="time-point">⏹ Werk einde: ${workEnd}</span><span class="time-point">🏠 Thuis: ${travelEnd}</span></div>
       <div>🐏 ${(s.workSeconds/3600).toFixed(2)} uur &nbsp;|&nbsp; 📟 ${(s.totalKm||0).toFixed(1)} km (${(s.totalDrivingKm||0).toFixed(1)} km vergoed)</div>
@@ -100,10 +129,16 @@ function renderSessionsList(sessions) {
       ${photosHtml}
       <div class="financial-total"><span>💶 Totaal</span><span>€${total.toFixed(2)}</span></div>
       <p>${escapeHtml(s.notes||'')}</p>
-      <div id="sessMap_${s.id}" class="map-thumb"></div>
+      <div id="sessMap_${sessionId}" class="map-thumb"></div>
+      ${!selectMode ? `<button onclick="deleteSingleSession(${sessionId})" class="btn-small" style="background:#ef4444; margin-top:8px;">🗑️ Verwijder deze werkdag</button>` : ''}
     </div>`;
   }).join('');
   
+  // Update selected count display
+  const selectedCount = document.getElementById('selectedCount');
+  if(selectedCount) selectedCount.innerText = `${selectedSessions.size} geselecteerd`;
+  
+  // Kaarten tekenen
   sessions.forEach(s => {
     const mapDiv = document.getElementById(`sessMap_${s.id}`);
     if(mapDiv && typeof L !== 'undefined' && s.routePoints && s.routePoints.length > 1) {
@@ -120,9 +155,68 @@ function renderSessionsList(sessions) {
       } catch(e) {}
     }
   });
+  
+  // Checkbox event listeners
+  document.querySelectorAll('.session-checkbox').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const id = parseInt(cb.dataset.id);
+      if(cb.checked) {
+        selectedSessions.add(id);
+      } else {
+        selectedSessions.delete(id);
+      }
+      const countSpan = document.getElementById('selectedCount');
+      if(countSpan) countSpan.innerText = `${selectedSessions.size} geselecteerd`;
+    });
+  });
 }
+
+function deleteSingleSession(id) {
+  if(confirm('Weet je zeker dat je deze werkdag wilt verwijderen? Dit kan niet ongedaan worden gemaakt.')) {
+    let sessions = JSON.parse(localStorage.getItem('workSessionsList') || '[]');
+    sessions = sessions.filter(s => s.id !== id);
+    localStorage.setItem('workSessionsList', JSON.stringify(sessions));
+    renderFilteredSessions();
+    showWarning('✅ Werkdag verwijderd');
+  }
+}
+
+function deleteSelectedSessions() {
+  if(selectedSessions.size === 0) {
+    showWarning('❌ Geen werkdagen geselecteerd');
+    return;
+  }
+  if(confirm(`Weet je zeker dat je ${selectedSessions.size} werkdag(en) wilt verwijderen? Dit kan niet ongedaan worden gemaakt.`)) {
+    let sessions = JSON.parse(localStorage.getItem('workSessionsList') || '[]');
+    sessions = sessions.filter(s => !selectedSessions.has(s.id));
+    localStorage.setItem('workSessionsList', JSON.stringify(sessions));
+    selectedSessions.clear();
+    exitSelectMode();
+    renderFilteredSessions();
+    showWarning(`✅ ${selectedSessions.size === 0 ? 'Alle' : selectedSessions.size} werkdag(en) verwijderd`);
+  }
+}
+
+function enterSelectMode() {
+  selectMode = true;
+  document.getElementById('selectModeBtn').style.display = 'none';
+  document.getElementById('deleteBar').style.display = 'flex';
+  renderFilteredSessions();
+}
+
+function exitSelectMode() {
+  selectMode = false;
+  selectedSessions.clear();
+  document.getElementById('selectModeBtn').style.display = 'block';
+  document.getElementById('deleteBar').style.display = 'none';
+  renderFilteredSessions();
+}
+
 document.getElementById('applyMonthFilterBtn').onclick = applyMonthFilter;
 document.getElementById('resetMonthFilterBtn').onclick = resetToCurrentMonth;
+document.getElementById('selectModeBtn').onclick = enterSelectMode;
+document.getElementById('deleteSelectedBtn').onclick = deleteSelectedSessions;
+document.getElementById('cancelSelectionBtn').onclick = exitSelectMode;
 document.getElementById('sessionYearSelect').value = new Date().getFullYear();
 document.getElementById('sessionMonthSelect').value = new Date().getMonth();
 applyMonthFilter();

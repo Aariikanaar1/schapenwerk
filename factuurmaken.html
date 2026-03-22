@@ -16,6 +16,7 @@
     .btn-secondary { background: #e2e8f0; color: #1e293b; }
     .btn-success { background: #10b981; color: white; }
     .btn-warning { background: #f59e0b; color: white; }
+    .btn-danger { background: #ef4444; color: white; }
     .btn-small { padding: 8px 16px; font-size: 0.75rem; flex: none; }
     .toggle-switch { display: flex; align-items: center; justify-content: space-between; background: #f1f5f9; padding: 12px 16px; border-radius: 48px; margin: 15px 0; }
     .switch { position: relative; display: inline-block; width: 48px; height: 26px; }
@@ -104,7 +105,7 @@
     
     <div class="filename-input">
       <label>Bestandsnaam:</label>
-      <input type="text" id="invoiceFilename" placeholder="factuur_maand_jaar.pdf">
+      <input type="text" id="invoiceFilename" placeholder="factuur_maand_jaar.pdf" value="factuur.pdf">
       <button id="saveFilenameBtn" class="btn-small">💾 Opslaan</button>
     </div>
     
@@ -129,8 +130,17 @@ let companyLogo = null;
 let currentGeneratedHTML = '';
 let currentInvoiceNumber = '';
 let currentTotal = 0;
+let currentYear = 2026;
+let currentMonth = 0;
+let currentClient = null;
 
-function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+function showWarning(msg){ 
+  if(window.parent && window.parent.postMessage) {
+    window.parent.postMessage({type:'warning',message:msg},'*');
+  } else {
+    alert(msg);
+  }
+}
 function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
 function formatDateToDutch(d){ return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
 function getContactDisplayName(c){ return c.company?.trim() || c.name || 'Onbekend'; }
@@ -156,15 +166,15 @@ loadContacts();
 function loadInvoiceWorkdays() {
   const clientId = parseInt(document.getElementById('invoiceClientSelect').value);
   if(!clientId) { alert('Selecteer een opdrachtgever'); return; }
-  const client = contacts.find(c => c.id === clientId);
-  if(!client) return;
-  const year = parseInt(document.getElementById('invoiceYearInput').value);
-  const month = parseInt(document.getElementById('invoiceMonthSelect').value);
+  currentClient = contacts.find(c => c.id === clientId);
+  if(!currentClient) return;
+  currentYear = parseInt(document.getElementById('invoiceYearInput').value);
+  currentMonth = parseInt(document.getElementById('invoiceMonthSelect').value);
   const sessions = JSON.parse(localStorage.getItem('workSessionsList')||'[]');
   currentInvoiceWorkdays = sessions.filter(s => {
     const d = new Date(s.startWorkdayTime);
-    return d.getMonth() === month && d.getFullYear() === year && 
-           (s.client || '').toLowerCase().includes((client.name || client.company || '').toLowerCase());
+    return d.getMonth() === currentMonth && d.getFullYear() === currentYear && 
+           (s.client || '').toLowerCase().includes((currentClient.name || currentClient.company || '').toLowerCase());
   });
   renderInvoiceEditor();
   document.getElementById('step2').style.display = 'block';
@@ -207,13 +217,8 @@ function renderExtraLines() {
 window.removeExtraLine = (index) => { extraLines.splice(index, 1); renderExtraLines(); };
 
 function generatePreview() {
-  const clientId = parseInt(document.getElementById('invoiceClientSelect').value);
-  if(!clientId) { alert('Selecteer een opdrachtgever'); return; }
-  const client = contacts.find(c => c.id === clientId);
-  if(!client) return;
+  if(!currentClient) { alert('Laad eerst werkdagen'); return; }
   
-  const year = parseInt(document.getElementById('invoiceYearInput').value);
-  const month = parseInt(document.getElementById('invoiceMonthSelect').value);
   const vat = parseFloat(document.getElementById('vatPercentage').value);
   const secretMode = document.getElementById('secretModeToggle').checked;
   const fontFamily = document.getElementById('fontFamilySelect').value;
@@ -244,18 +249,18 @@ function generatePreview() {
     const kmAmt = km * KM_RATE;
     const sub = workAmt + kmAmt;
     total += sub;
-    rows += `<tr><td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')}</td><td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)} uur</td><td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">${km.toFixed(1)} km</td><td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)}</td></tr>`;
+    rows += ` <tr><td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')}</td><td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)} uur</td><td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">${km.toFixed(1)} km</td><td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)}</td></tr>`;
     if(secretMode) {
-      detailedRows += `<tr><td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')}</td><td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${rate.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">${km.toFixed(1)}</td><td style="border:1px solid #000; padding:8px;">€${KM_RATE.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)}</td></tr>`;
+      detailedRows += ` <tr><td style="border:1px solid #000; padding:8px;">${formatDateToDutch(new Date(day.startWorkdayTime))}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(day.notes || 'Werkdag')}</td><td style="border:1px solid #000; padding:8px;">${hours.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${rate.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${workAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">${km.toFixed(1)}</td><td style="border:1px solid #000; padding:8px;">€${KM_RATE.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${kmAmt.toFixed(2)}</td><td style="border:1px solid #000; padding:8px;">€${sub.toFixed(2)}</td></tr>`;
     }
   });
   
   extraLines.forEach(line => {
     const amount = line.amount;
     total += amount;
-    rows += `<tr><td style="border:1px solid #000; padding:8px;">${line.date || ''}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)}</td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;">€${amount.toFixed(2)}</td></tr>`;
+    rows += ` <tr><td style="border:1px solid #000; padding:8px;">${line.date || ''}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)}</td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;">€${amount.toFixed(2)}</td></tr>`;
     if(secretMode) {
-      detailedRows += `<tr><td style="border:1px solid #000; padding:8px;">${line.date || ''}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)}</td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;">€${amount.toFixed(2)}</td></tr>`;
+      detailedRows += ` <tr><td style="border:1px solid #000; padding:8px;">${line.date || ''}</td><td style="border:1px solid #000; padding:8px;">${escapeHtml(line.description)}</td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;"></td><td style="border:1px solid #000; padding:8px;">€${amount.toFixed(2)}</td></tr>`;
     }
   });
   
@@ -263,29 +268,30 @@ function generatePreview() {
   
   const btw = total * (vat / 100);
   const grand = total + btw;
-  const invoiceNumber = `F${year}${(month+1).toString().padStart(2,'0')}${Math.floor(Math.random() * 1000)}`;
+  currentInvoiceNumber = `F${currentYear}${(currentMonth+1).toString().padStart(2,'0')}${Math.floor(Math.random() * 1000)}`;
   const invoiceDate = formatDateToDutch(new Date());
   const logoHtml = companyLogo ? `<img src="${companyLogo}" style="max-height:60px; margin-bottom:10px;">` : '';
-  const clientDisplay = `${client.company || client.name || ''}${client.street ? ', ' + client.street : ''}${client.city ? ', ' + client.city : ''}`;
+  const clientDisplay = `${currentClient.company || currentClient.name || ''}${currentClient.street ? ', ' + currentClient.street : ''}${currentClient.city ? ', ' + currentClient.city : ''}`;
+  currentTotal = grand;
   
   let html = '';
   if(secretMode) {
     html = `<div id="invoiceToPrint" style="font-family:${fontFamily}; font-size:${fontSize}px; max-width:800px; margin:0 auto;">
       ${logoHtml}
-      <h2>FACTUUR ${invoiceNumber}</h2>
+      <h2>FACTUUR ${currentInvoiceNumber}</h2>
       <p><strong>${company.name || 'Uw bedrijf'}</strong><br>${company.street || ''}<br>${company.location || ''}<br>IBAN: ${company.iban || ''}<br>KvK: ${company.kvk || ''}</p>
       <p>${clientDisplay}</p>
       <p>Datum: ${invoiceDate}</p>
       ${headerText ? `<p>${headerText}</p>` : ''}
       <table border="1" cellpadding="5" style="width:100%; border-collapse:collapse;">
         <thead><tr><th>Omschrijving</th><th>Bedrag</th></tr></thead>
-        <tbody><tr><td>Werkzaamheden periode ${new Date(year, month).toLocaleString('nl-NL', { month: 'long' })} ${year}</td><td>€${total.toFixed(2)}</td></tr></tbody>
+        <tbody><tr><td>Werkzaamheden periode ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long' })} ${currentYear}</td><td>€${total.toFixed(2)}</td></tr></tbody>
       </table>
       ${footerText ? `<p>${footerText}</p>` : ''}
       <p><em>Een apart toelichtingsdocument met de specificaties is bijgevoegd.</em></p>
     </div>
     <div id="explanationDoc" style="font-family:${fontFamily}; font-size:${fontSize}px; max-width:800px; margin:0 auto;">
-      <h2>TOELICHTING BIJ FACTUUR ${invoiceNumber}</h2>
+      <h2>TOELICHTING BIJ FACTUUR ${currentInvoiceNumber}</h2>
       <p><strong>${clientDisplay}</strong></p>
       <table border="1" cellpadding="5" style="width:100%; border-collapse:collapse;">
         <thead><tr><th>Datum</th><th>Omschrijving</th><th>Uren</th><th>Uurloon</th><th>Bedrag werk</th><th>KM</th><th>KM vergoeding</th><th>Totaal</th></tr></thead>
@@ -296,7 +302,7 @@ function generatePreview() {
   } else {
     html = `<div id="invoiceToPrint" style="font-family:${fontFamily}; font-size:${fontSize}px; max-width:800px; margin:0 auto;">
       ${logoHtml}
-      <h2>FACTUUR ${invoiceNumber}</h2>
+      <h2>FACTUUR ${currentInvoiceNumber}</h2>
       <p><strong>${company.name || 'Uw bedrijf'}</strong><br>${company.street || ''}<br>${company.location || ''}<br>IBAN: ${company.iban || ''}<br>KvK: ${company.kvk || ''}</p>
       <p>${clientDisplay}</p>
       <p>Datum: ${invoiceDate}</p>
@@ -305,4 +311,101 @@ function generatePreview() {
         <thead><tr><th>Datum</th><th>Omschrijving</th><th>Uren</th><th>Bedrag werk</th><th>KM</th><th>KM vergoeding</th><th>Totaal</th></tr></thead>
         <tbody>${rows}</tbody>
         <tfoot>
-          <tr><td colspan="6" align="right"><strong>Totaal excl. BTW</strong></td><
+          <tr><td colspan="6" align="right"><strong>Totaal excl. BTW</strong></td><td><strong>€${total.toFixed(2)}</strong></td></tr>
+          <tr><td colspan="6" align="right">BTW (${vat}%)</td><td><strong>€${btw.toFixed(2)}</strong></td></tr>
+          <tr><td colspan="6" align="right"><strong>Totaal incl. BTW</strong></td><td><strong>€${grand.toFixed(2)}</strong></td></tr>
+        </tfoot>
+      </table>
+      ${footerText ? `<p>${footerText}</p>` : ''}
+    </div>`;
+  }
+  
+  currentGeneratedHTML = html;
+  document.getElementById('invoicePreviewContainer').innerHTML = html;
+  document.getElementById('step2').style.display = 'none';
+  document.getElementById('step3').style.display = 'block';
+  document.getElementById('invoiceFilename').value = `factuur_${currentClient.name || currentClient.company}_${currentYear}_${currentMonth+1}.pdf`;
+}
+
+function saveInvoiceToStorage() {
+  let invoices = JSON.parse(localStorage.getItem('savedInvoices') || '[]');
+  invoices.push({ 
+    id: Date.now(), 
+    invoiceNumber: currentInvoiceNumber, 
+    clientName: currentClient.company || currentClient.name || 'Onbekend', 
+    year: currentYear, 
+    month: currentMonth, 
+    date: new Date().toISOString(), 
+    html: currentGeneratedHTML, 
+    total: currentTotal 
+  });
+  localStorage.setItem('savedInvoices', JSON.stringify(invoices));
+  showWarning('✅ Factuur opgeslagen bij "Facturen"');
+}
+
+function downloadOnly() {
+  if(!currentGeneratedHTML) { alert('Genereer eerst een factuur'); return; }
+  const filename = document.getElementById('invoiceFilename').value || 'factuur.pdf';
+  const element = document.getElementById('invoiceToPrint');
+  if(element) {
+    html2pdf().set({ margin: 0.5, filename: filename }).from(element).save();
+    saveInvoiceToStorage();
+  }
+}
+
+function sendOnly() {
+  if(!currentGeneratedHTML) { alert('Genereer eerst een factuur'); return; }
+  saveInvoiceToStorage();
+  const subject = encodeURIComponent(`Factuur ${currentInvoiceNumber}`);
+  const body = encodeURIComponent(`Beste,
+
+Hierbij ontvangt u de factuur voor de werkzaamheden in ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long' })} ${currentYear}.
+
+Met vriendelijke groet,
+${localStorage.getItem('companyName') || 'Uw bedrijf'}`);
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  showWarning('📧 E-mailclient geopend, voeg de PDF handmatig toe');
+}
+
+function downloadAndSend() {
+  if(!currentGeneratedHTML) { alert('Genereer eerst een factuur'); return; }
+  const filename = document.getElementById('invoiceFilename').value || 'factuur.pdf';
+  const element = document.getElementById('invoiceToPrint');
+  if(element) {
+    html2pdf().set({ margin: 0.5, filename: filename }).from(element).save();
+    saveInvoiceToStorage();
+    setTimeout(() => {
+      const subject = encodeURIComponent(`Factuur ${currentInvoiceNumber}`);
+      const body = encodeURIComponent(`Beste,
+
+Hierbij ontvangt u de factuur voor de werkzaamheden in ${new Date(currentYear, currentMonth).toLocaleString('nl-NL', { month: 'long' })} ${currentYear}.
+
+Met vriendelijke groet,
+${localStorage.getItem('companyName') || 'Uw bedrijf'}`);
+      window.location.href = `mailto:?subject=${subject}&body=${body}`;
+      showWarning('📧 E-mailclient geopend, de PDF is gedownload');
+    }, 1000);
+  }
+}
+
+document.getElementById('loadWorkdaysBtn').onclick = loadInvoiceWorkdays;
+document.getElementById('previewInvoiceBtn').onclick = generatePreview;
+document.getElementById('downloadOnlyBtn').onclick = downloadOnly;
+document.getElementById('sendOnlyBtn').onclick = sendOnly;
+document.getElementById('downloadAndSendBtn').onclick = downloadAndSend;
+document.getElementById('backToEditBtn').onclick = () => {
+  document.getElementById('step2').style.display = 'block';
+  document.getElementById('step3').style.display = 'none';
+};
+document.getElementById('addExtraLineBtn').onclick = () => { extraLines.push({ date: '', description: '', amount: 0 }); renderExtraLines(); };
+document.getElementById('secretModeToggle').onchange = () => {
+  document.getElementById('secretInfo').style.display = document.getElementById('secretModeToggle').checked ? 'block' : 'none';
+};
+document.getElementById('saveFilenameBtn').onclick = () => {
+  showWarning('✅ Bestandsnaam opgeslagen');
+};
+
+renderExtraLines();
+</script>
+</body>
+</html>
