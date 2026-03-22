@@ -29,6 +29,7 @@
     .session-checkbox { position: absolute; top: 16px; right: 16px; width: 24px; height: 24px; cursor: pointer; }
     .delete-bar { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
     .selected-count { background: #e2e8f0; padding: 8px 16px; border-radius: 40px; font-size: 0.8rem; }
+    .route-filter-note { font-size: 0.6rem; color: #10b981; margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -65,6 +66,10 @@ let currentFilterYear = new Date().getFullYear();
 let selectMode = false;
 let selectedSessions = new Set();
 
+// ========== ROUTE FILTERING CONSTANTEN ==========
+const MAX_JUMP_DISTANCE_METERS = 150; // Maximale sprong tussen punten
+const MIN_POINT_DISTANCE_METERS = 5;  // Minimale afstand om punt te tonen
+
 function showWarning(msg){ 
   if(window.parent && window.parent.postMessage) {
     window.parent.postMessage({type:'warning',message:msg},'*');
@@ -75,6 +80,61 @@ function showWarning(msg){
 function formatTimestamp(d){ if(!d) return '—'; return new Date(d).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'}); }
 function formatDateToDutch(d){ return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
 function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
+
+function getDistanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLon/2)**2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c * 1000;
+}
+
+// Filter routepunten voor een mooiere kaart
+function filterRoutePointsForMap(points) {
+  if(!points || points.length === 0) return [];
+  
+  const filtered = [];
+  let lastPoint = null;
+  let skippedCount = 0;
+  
+  for(let i = 0; i < points.length; i++) {
+    const point = points[i];
+    
+    // Skip punten met te lage nauwkeurigheid
+    if(point.accuracy && point.accuracy > 50) {
+      skippedCount++;
+      continue;
+    }
+    
+    if(!lastPoint) {
+      filtered.push(point);
+      lastPoint = point;
+      continue;
+    }
+    
+    const distance = getDistanceMeters(lastPoint.lat, lastPoint.lng, point.lat, point.lng);
+    
+    // Alleen toevoegen als afstand redelijk is (niet te klein, niet te groot)
+    if(distance >= MIN_POINT_DISTANCE_METERS && distance <= MAX_JUMP_DISTANCE_METERS) {
+      filtered.push(point);
+      lastPoint = point;
+    } else if(distance > MAX_JUMP_DISTANCE_METERS) {
+      skippedCount++;
+      // Grote sprong: slaan we over
+    } else if(distance < MIN_POINT_DISTANCE_METERS) {
+      // Te dichtbij: slaan we over
+      skippedCount++;
+    }
+  }
+  
+  if(skippedCount > 0) {
+    console.log(`Route filtering: ${skippedCount} punten overgeslagen (sprongen/duplicaten)`);
+  }
+  
+  return filtered;
+}
+
 function loadRates(){ const h=localStorage.getItem('hourlyRate'); if(h) HOURLY_RATE=parseFloat(h); const k=localStorage.getItem('kmRate'); if(k) KM_RATE=parseFloat(k); }
 loadRates();
 
@@ -114,6 +174,12 @@ function renderSessionsList(sessions) {
     const photosHtml = s.photos?.length ? `<div class="photo-list">${s.photos.map(p => `<img src="${p.dataUrl}" class="photo-thumb" onclick="window.open('${p.dataUrl}')">`).join('')}</div>` : '';
     const checkboxHtml = selectMode ? `<input type="checkbox" class="session-checkbox" data-id="${sessionId}" ${selectedSessions.has(sessionId) ? 'checked' : ''}>` : '';
     
+    // Bereken aantal gefilterde routepunten
+    const originalPoints = s.routePoints || [];
+    const filteredPoints = filterRoutePointsForMap(originalPoints);
+    const filterNote = filteredPoints.length < originalPoints.length ? 
+      `<div class="route-filter-note">🗺️ Route gefilterd: ${filteredPoints.length}/${originalPoints.length} punten getoond (springers verwijderd)</div>` : '';
+    
     let locs = '';
     if(s.stops && s.stops.length) {
       const unique = [...new Map(s.stops.map(stop => [stop.location, stop])).values()];
@@ -126,6 +192,7 @@ function renderSessionsList(sessions) {
       <div>${stepsHtml}<span class="time-point">🚐 Vertrek: ${travelStart}</span><span class="time-point">🐏 Werk start: ${workStart}</span><span class="time-point">⏹ Werk einde: ${workEnd}</span><span class="time-point">🏠 Thuis: ${travelEnd}</span></div>
       <div>🐏 ${(s.workSeconds/3600).toFixed(2)} uur &nbsp;|&nbsp; 📟 ${(s.totalKm||0).toFixed(1)} km (${(s.totalDrivingKm||0).toFixed(1)} km vergoed)</div>
       ${locs}
+      ${filterNote}
       ${photosHtml}
       <div class="financial-total"><span>💶 Totaal</span><span>€${total.toFixed(2)}</span></div>
       <p>${escapeHtml(s.notes||'')}</p>
@@ -138,36 +205,51 @@ function renderSessionsList(sessions) {
   const selectedCount = document.getElementById('selectedCount');
   if(selectedCount) selectedCount.innerText = `${selectedSessions.size} geselecteerd`;
   
-  // Kaarten tekenen
+  // Kaarten tekenen met gefilterde routepunten
   sessions.forEach(s => {
     const mapDiv = document.getElementById(`sessMap_${s.id}`);
     if(mapDiv && typeof L !== 'undefined' && s.routePoints && s.routePoints.length > 1) {
       try {
+        // Filter de routepunten voor een mooiere kaart
+        const filteredRoutePoints = filterRoutePointsForMap(s.routePoints);
+        
+        if(filteredRoutePoints.length < 2) {
+          mapDiv.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;">🗺️ Onvoldoende routepunten voor kaart</div>';
+          return;
+        }
+        
         const map = L.map(mapDiv, { scrollWheelZoom: false, zoomControl: false });
-        const driving = s.routePoints.filter(p => p.type !== 'walking').map(p => [p.lat, p.lng]);
-        const walking = s.routePoints.filter(p => p.type === 'walking').map(p => [p.lat, p.lng]);
-        if(driving.length > 1) L.polyline(driving, { color: '#0077cc', weight: 4 }).addTo(map);
-        if(walking.length > 1) L.polyline(walking, { color: '#ef4444', weight: 3, dashArray: '5,5' }).addTo(map);
-        const all = [...driving, ...walking];
-        if(all.length > 0) map.fitBounds(L.latLngBounds(all), { padding: [30, 30] });
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        
+        // Splits in rijden en lopen op basis van gefilterde punten
+        const driving = filteredRoutePoints.filter(p => p.type === 'driving').map(p => [p.lat, p.lng]);
+        const walking = filteredRoutePoints.filter(p => p.type === 'walking').map(p => [p.lat, p.lng]);
+        const standing = filteredRoutePoints.filter(p => p.type === 'standing').map(p => [p.lat, p.lng]);
+        
+        // Teken de routes
+        if(driving.length > 1) L.polyline(driving, { color: '#0077cc', weight: 4, opacity: 0.9 }).addTo(map);
+        if(walking.length > 1) L.polyline(walking, { color: '#ef4444', weight: 3, dashArray: '5,5', opacity: 0.8 }).addTo(map);
+        if(standing.length > 1) L.polyline(standing, { color: '#f59e0b', weight: 2, opacity: 0.6 }).addTo(map);
+        
+        // Alle punten voor bounds
+        const all = [...driving, ...walking, ...standing];
+        if(all.length > 0) {
+          map.fitBounds(L.latLngBounds(all), { padding: [30, 30] });
+        } else if(filteredRoutePoints.length > 0) {
+          map.setView([filteredRoutePoints[0].lat, filteredRoutePoints[0].lng], 13);
+        }
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap'
+        }).addTo(map);
+        
         setTimeout(() => map.invalidateSize(), 100);
-      } catch(e) {}
-    }
-  });
-  
-  // Checkbox event listeners
-  document.querySelectorAll('.session-checkbox').forEach(cb => {
-    cb.addEventListener('change', (e) => {
-      const id = parseInt(cb.dataset.id);
-      if(cb.checked) {
-        selectedSessions.add(id);
-      } else {
-        selectedSessions.delete(id);
+      } catch(e) {
+        console.error('Kaart fout:', e);
+        mapDiv.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#dc2626;">❌ Fout bij laden kaart</div>';
       }
-      const countSpan = document.getElementById('selectedCount');
-      if(countSpan) countSpan.innerText = `${selectedSessions.size} geselecteerd`;
-    });
+    } else if(mapDiv && (!s.routePoints || s.routePoints.length < 2)) {
+      mapDiv.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;">🗺️ Geen route beschikbaar</div>';
+    }
   });
 }
 
