@@ -22,9 +22,10 @@
     .stat-card { background: #f0f9ff; border-radius: 16px; padding: 12px; text-align: center; flex: 1; }
     .stat-number { font-size: 1.5rem; font-weight: bold; color: #0077cc; }
     .stats-container { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
     th, td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; vertical-align: top; }
     th { background: #f8fafc; }
+    .coords { font-size: 0.6rem; color: #64748b; font-family: monospace; }
   </style>
 </head>
 <body>
@@ -46,7 +47,13 @@
 </div>
 
 <script>
-function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+function showWarning(msg){ 
+  if(window.parent && window.parent.postMessage) {
+    window.parent.postMessage({type:'warning',message:msg},'*');
+  } else {
+    alert(msg);
+  }
+}
 function formatTimestamp(d){ if(!d) return '—'; return new Date(d).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'}); }
 function formatDateToDutch(d){ return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`; }
 function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
@@ -84,23 +91,24 @@ function renderKmRegistration() {
     const dateStr = formatDateToDutch(date);
     let lastOdo = sess.startOdo || 0;
     
-    html += `<div class="card"><h3>📅 ${dateStr}</h3> <table> <thead> <tr> <th>Tijdstip</th> <th>Locatie</th> <th>Beginstand</th> <th>Eindstand</th> <th>km</th> <th>Type</th> </tr> </thead> <tbody>`;
+    html += `<div class="card"><h3>📅 ${dateStr}</h3> <table> <thead> <tr> <th>Tijdstip</th> <th>Locatie</th> <th>Coördinaten</th> <th>Beginstand</th> <th>Eindstand</th> <th>km</th> <th>Type</th> </tr> </thead> <tbody>`;
     
     if(sess.stops && sess.stops.length) {
-      html += `<tr><td>${formatTimestamp(sess.travelToStartTime || sess.startWorkdayTime)}</td><td>🏠 ${escapeHtml(homeName)}</td><td>${sess.startOdo.toFixed(0)}</td><td>-</td><td>-</td><td>Start</td></tr>`;
+      html += `<tr> <td>${formatTimestamp(sess.travelToStartTime || sess.startWorkdayTime)}</td> <td>🏠 ${escapeHtml(homeName)}</td> <td>-</td> <td>${sess.startOdo.toFixed(0)}</td> <td>-</td> <td>-</td> <td>Start</td> </tr>`;
       
       sess.stops.forEach((stop, idx) => {
         if(!showPrivate && stop.isPrivate) return;
         const startKm = lastOdo;
         const endKm = stop.endOdo || lastOdo;
         const km = endKm - startKm;
-        html += `<tr><td>${formatTimestamp(stop.startTime)}</td><td>📍 ${escapeHtml(stop.location)}</td><td>${startKm.toFixed(0)}</td><td>${endKm.toFixed(0)}</td><td>${km.toFixed(0)}</td><td>${stop.isWalking ? '🚶 Lopen' : '🚗 Rijden'}</td></tr>`;
+        const coords = stop.lat && stop.lng ? `${stop.lat.toFixed(5)}, ${stop.lng.toFixed(5)}` : '-';
+        html += `<tr> <td>${formatTimestamp(stop.startTime)}</td> <td>📍 ${escapeHtml(stop.location)}</td> <td class="coords">${coords}</td> <td>${startKm.toFixed(0)}</td> <td>${endKm.toFixed(0)}</td> <td>${km.toFixed(0)}</td> <td>${stop.isWalking ? '🚶 Lopen' : '🚗 Rijden'}</td> </tr>`;
         lastOdo = endKm;
       });
       
-      html += `<tr><td>${formatTimestamp(sess.travelBackStartTime)}</td><td>🏠 ${escapeHtml(homeName)}</td><td>${lastOdo.toFixed(0)}</td><td>${sess.endOdo.toFixed(0)}</td><td>${(sess.endOdo - lastOdo).toFixed(0)}</td><td>Thuis</td></tr>`;
+      html += `<tr> <td>${formatTimestamp(sess.travelBackStartTime)}</td> <td>🏠 ${escapeHtml(homeName)}</td> <td>-</td> <td>${lastOdo.toFixed(0)}</td> <td>${sess.endOdo.toFixed(0)}</td> <td>${(sess.endOdo - lastOdo).toFixed(0)}</td> <td>Thuis</td> 5美金`;
     }
-    html += `</tbody> </table> </div>`;
+    html += `</tbody> 5美金 </div>`;
   });
   
   document.getElementById('kmRegContainer').innerHTML = html;
@@ -114,24 +122,25 @@ function exportToCsv() {
   let homeName = homeStreet;
   if(homeLocation) homeName += `, ${homeLocation}`;
   
-  let csv = '"Datum","Tijdstip","Locatie","Beginstand","Eindstand","Kilometers","Type"\n';
+  let csv = '"Datum","Tijdstip","Locatie","Coördinaten","Beginstand","Eindstand","Kilometers","Type"\n';
   
   workSessions.forEach(sess => {
     const date = formatDateToDutch(new Date(sess.startWorkdayTime));
     let lastOdo = sess.startOdo || 0;
     
     if(sess.stops && sess.stops.length) {
-      csv += `"${date}","${formatTimestamp(sess.travelToStartTime || sess.startWorkdayTime)}","Thuis","${sess.startOdo.toFixed(0)}","-","-","Start"\n`;
+      csv += `"${date}","${formatTimestamp(sess.travelToStartTime || sess.startWorkdayTime)}","Thuis","-","${sess.startOdo.toFixed(0)}","-","-","Start"\n`;
       
       sess.stops.forEach((stop, idx) => {
         const startKm = lastOdo;
         const endKm = stop.endOdo || lastOdo;
         const km = endKm - startKm;
-        csv += `"${date}","${formatTimestamp(stop.startTime)}","${stop.location}","${startKm.toFixed(0)}","${endKm.toFixed(0)}","${km.toFixed(0)}","${stop.isWalking ? 'Lopen' : 'Rijden'}"\n`;
+        const coords = stop.lat && stop.lng ? `${stop.lat.toFixed(5)}, ${stop.lng.toFixed(5)}` : '-';
+        csv += `"${date}","${formatTimestamp(stop.startTime)}","${stop.location}","${coords}","${startKm.toFixed(0)}","${endKm.toFixed(0)}","${km.toFixed(0)}","${stop.isWalking ? 'Lopen' : 'Rijden'}"\n`;
         lastOdo = endKm;
       });
       
-      csv += `"${date}","${formatTimestamp(sess.travelBackStartTime)}","Thuis","${lastOdo.toFixed(0)}","${sess.endOdo.toFixed(0)}","${(sess.endOdo - lastOdo).toFixed(0)}","Thuis"\n`;
+      csv += `"${date}","${formatTimestamp(sess.travelBackStartTime)}","Thuis","-","${lastOdo.toFixed(0)}","${sess.endOdo.toFixed(0)}","${(sess.endOdo - lastOdo).toFixed(0)}","Thuis"\n`;
     }
   });
   

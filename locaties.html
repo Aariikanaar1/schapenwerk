@@ -15,7 +15,7 @@
     .btn-primary { background: #0077cc; color: white; }
     .btn-secondary { background: #e2e8f0; color: #1e293b; }
     .btn-small { padding: 8px 16px; font-size: 0.75rem; flex: none; }
-    input { width: 100%; padding: 12px; border-radius: 20px; border: 1px solid #e2e8f0; font-size: 0.9rem; margin-top: 6px; font-family: inherit; }
+    input, select { width: 100%; padding: 12px; border-radius: 20px; border: 1px solid #e2e8f0; font-size: 0.9rem; margin-top: 6px; font-family: inherit; }
     label { font-weight: 500; margin-top: 12px; display: block; font-size: 0.8rem; color: #475569; }
     .add-location-form { background: #f8fafc; border-radius: 20px; padding: 16px; margin-bottom: 20px; display: none; }
     .loc-type-selector { display: flex; gap: 10px; margin-bottom: 12px; }
@@ -26,11 +26,20 @@
     .location-coords { font-size: 0.7rem; color: #64748b; margin-top: 4px; }
     .button-group { display: flex; gap: 10px; margin-top: 12px; }
     #locationsMap { height: 300px; border-radius: 20px; margin-bottom: 20px; background: #eef2f6; }
+    .filter-bar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+    .filter-bar select { width: auto; flex: 1; min-width: 150px; margin-top: 0; }
   </style>
 </head>
 <body>
 
 <div class="card">
+  <div class="filter-bar">
+    <select id="clientFilterSelect">
+      <option value="all">📍 Alle opdrachtgevers</option>
+    </select>
+    <button id="applyFilterBtn" class="btn-primary">🔍 Filter</button>
+  </div>
+  
   <div id="locationsMap"></div>
   
   <button id="showAddLocationFormBtn" class="btn-primary" style="margin-bottom: 16px;">➕ Nieuwe locatie toevoegen</button>
@@ -53,6 +62,8 @@
     </div>
     <label>Naam van de locatie</label>
     <input type="text" id="newLocationName" placeholder="Bijv. Het Wantveld">
+    <label>Opdrachtgever</label>
+    <select id="locationClientSelect"></select>
     <label>Straal (meters)</label>
     <input type="number" id="newLocationRadius" step="10" value="500">
     <div class="button-group">
@@ -68,13 +79,51 @@
 <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
 <script>
 let userDefinedLocations = [];
+let contacts = [];
 let currentLocationType = 'coords';
 let map;
 let markers = [];
+let currentFilterClient = 'all';
 
-function showWarning(msg){ window.parent.postMessage({type:'warning',message:msg},'*'); }
+function showWarning(msg){ 
+  if(window.parent && window.parent.postMessage) {
+    window.parent.postMessage({type:'warning',message:msg},'*');
+  } else {
+    alert(msg);
+  }
+}
 function escapeHtml(s){ if(!s) return ''; return s.replace(/[&<>]/g,m=>m==='&'?'&amp;':m==='<'?'&lt;':'&gt;'); }
 function getDistanceBetweenCoords(l1,ln1,l2,ln2){ const R=6371,dLat=(l2-l1)*Math.PI/180,dLon=(ln2-ln1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(l1*Math.PI/180)*Math.cos(l2*Math.PI/180)*Math.sin(dLon/2)**2,c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)); return R*c; }
+function getContactDisplayName(c){ return c.company?.trim() || c.name || 'Onbekend'; }
+
+function loadContacts() {
+  const s = localStorage.getItem('contacts');
+  if(s) contacts = JSON.parse(s);
+  updateClientSelects();
+}
+function updateClientSelects() {
+  const clientSelect = document.getElementById('locationClientSelect');
+  const filterSelect = document.getElementById('clientFilterSelect');
+  if(clientSelect) {
+    clientSelect.innerHTML = '<option value="">-- Geen opdrachtgever --</option>';
+    contacts.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = getContactDisplayName(c);
+      clientSelect.appendChild(opt);
+    });
+  }
+  if(filterSelect) {
+    filterSelect.innerHTML = '<option value="all">📍 Alle opdrachtgevers</option>';
+    contacts.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = getContactDisplayName(c);
+      filterSelect.appendChild(opt);
+    });
+  }
+}
+loadContacts();
 
 function initMap() {
   map = L.map('locationsMap').setView([52.5, 5.5], 8);
@@ -87,19 +136,38 @@ function initMap() {
 function updateMapMarkers() {
   markers.forEach(m => map.removeLayer(m));
   markers = [];
-  userDefinedLocations.forEach(loc => {
+  
+  let filteredLocations = userDefinedLocations;
+  if(currentFilterClient !== 'all') {
+    filteredLocations = userDefinedLocations.filter(loc => loc.clientId == currentFilterClient);
+  }
+  
+  filteredLocations.forEach(loc => {
+    const client = contacts.find(c => c.id == loc.clientId);
+    const clientName = client ? getContactDisplayName(client) : 'Geen opdrachtgever';
     const marker = L.marker([loc.lat, loc.lng]).addTo(map);
-    marker.bindPopup(`<b>${escapeHtml(loc.name)}</b><br>📌 ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}<br>📏 Straal: ${loc.radius}m`);
+    marker.bindPopup(`<b>${escapeHtml(loc.name)}</b><br>👤 ${escapeHtml(clientName)}<br>📌 ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}<br>📏 Straal: ${loc.radius}m`);
     markers.push(marker);
   });
-  if(userDefinedLocations.length > 0) {
-    const bounds = L.latLngBounds(userDefinedLocations.map(l => [l.lat, l.lng]));
+  
+  if(filteredLocations.length > 0) {
+    const bounds = L.latLngBounds(filteredLocations.map(l => [l.lat, l.lng]));
     map.fitBounds(bounds, { padding: [50, 50] });
   }
 }
 
-function loadUserLocations() { const saved = localStorage.getItem('userDefinedLocations'); if(saved) userDefinedLocations = JSON.parse(saved); renderLocationsManager(); updateMapMarkers(); }
-function saveUserLocations() { localStorage.setItem('userDefinedLocations', JSON.stringify(userDefinedLocations)); renderLocationsManager(); updateMapMarkers(); updateAllStopsWithLocationNames(); }
+function loadUserLocations() { 
+  const saved = localStorage.getItem('userDefinedLocations');
+  if(saved) userDefinedLocations = JSON.parse(saved);
+  renderLocationsManager(); 
+  updateMapMarkers();
+}
+function saveUserLocations() { 
+  localStorage.setItem('userDefinedLocations', JSON.stringify(userDefinedLocations)); 
+  renderLocationsManager(); 
+  updateMapMarkers();
+  updateAllStopsWithLocationNames();
+}
 function updateAllStopsWithLocationNames() {
   const sessions = JSON.parse(localStorage.getItem('workSessionsList')||'[]');
   let updated = false;
@@ -109,7 +177,11 @@ function updateAllStopsWithLocationNames() {
         if(stop.lat && stop.lng) {
           for(const loc of userDefinedLocations) {
             if(getDistanceBetweenCoords(stop.lat, stop.lng, loc.lat, loc.lng) * 1000 <= loc.radius) {
-              if(loc.name !== stop.location) { stop.location = loc.name; updated = true; }
+              if(loc.name !== stop.location) { 
+                stop.location = loc.name; 
+                updated = true;
+                console.log(`Stop bij ${stop.lat},${stop.lng} hernoemd naar "${loc.name}"`);
+              }
               break;
             }
           }
@@ -117,31 +189,55 @@ function updateAllStopsWithLocationNames() {
       });
     }
   });
-  if(updated) { localStorage.setItem('workSessionsList', JSON.stringify(sessions)); }
+  if(updated) { 
+    localStorage.setItem('workSessionsList', JSON.stringify(sessions));
+    showWarning('✅ Locaties bijgewerkt in werkdagen');
+  }
 }
 function renderLocationsManager() {
   const container = document.getElementById('locationsManageContainer');
   if(!container) return;
-  if(!userDefinedLocations.length) { container.innerHTML = '<div class="card" style="background:#f8fafc;">📭 Nog geen locaties toegevoegd.</div>'; return; }
-  container.innerHTML = userDefinedLocations.map((loc, idx) => `
-    <div class="location-item">
-      <div class="location-name">📍 ${escapeHtml(loc.name)}</div>
-      <div class="location-coords">📌 ${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} | 📏 Straal: ${loc.radius}m</div>
-      <div class="button-group">
-        <button onclick="editLocation(${idx})" class="btn-small" style="background:#f59e0b;">✏️ Bewerken</button>
-        <button onclick="deleteLocation(${idx})" class="btn-small" style="background:#ef4444;">🗑️ Verwijderen</button>
+  if(!userDefinedLocations.length) { 
+    container.innerHTML = '<div class="card" style="background:#f8fafc;">📭 Nog geen locaties toegevoegd.</div>'; 
+    return; 
+  }
+  container.innerHTML = userDefinedLocations.map((loc, idx) => {
+    const client = contacts.find(c => c.id == loc.clientId);
+    const clientName = client ? getContactDisplayName(client) : 'Geen';
+    return `
+      <div class="location-item">
+        <div class="location-name">📍 ${escapeHtml(loc.name)}</div>
+        <div class="location-coords">👤 ${escapeHtml(clientName)} | 📌 ${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)} | 📏 Straal: ${loc.radius}m</div>
+        <div class="button-group">
+          <button onclick="editLocation(${idx})" class="btn-small" style="background:#f59e0b;">✏️ Bewerken</button>
+          <button onclick="deleteLocation(${idx})" class="btn-small" style="background:#ef4444;">🗑️ Verwijderen</button>
+        </div>
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 window.editLocation = (idx) => {
   const loc = userDefinedLocations[idx];
   const newName = prompt('Nieuwe naam voor deze locatie:', loc.name);
-  if(newName && newName !== loc.name) { userDefinedLocations[idx].name = newName; saveUserLocations(); showWarning(`✅ Locatie hernoemd naar "${newName}"`); }
+  if(newName && newName !== loc.name) { 
+    userDefinedLocations[idx].name = newName; 
+    saveUserLocations(); 
+    showWarning(`✅ Locatie hernoemd naar "${newName}"`); 
+  }
 };
 window.deleteLocation = (idx) => {
-  if(confirm('Weet je zeker dat je deze locatie wilt verwijderen?')) { userDefinedLocations.splice(idx, 1); saveUserLocations(); showWarning(`🗑️ Locatie verwijderd`); }
+  if(confirm('Weet je zeker dat je deze locatie wilt verwijderen?')) { 
+    userDefinedLocations.splice(idx, 1); 
+    saveUserLocations(); 
+    showWarning(`🗑️ Locatie verwijderd`); 
+  }
 };
+
+function applyFilter() {
+  currentFilterClient = document.getElementById('clientFilterSelect').value;
+  updateMapMarkers();
+  showWarning(`🔍 Filter toegepast`);
+}
 
 // Formulier
 const showAddLocationFormBtn = document.getElementById('showAddLocationFormBtn');
@@ -181,6 +277,7 @@ geocodeAddressBtn.onclick = async () => {
 };
 saveNewLocationBtn.onclick = () => {
   const name = document.getElementById('newLocationName').value.trim();
+  const clientId = document.getElementById('locationClientSelect').value;
   let lat, lng;
   if(currentLocationType === 'coords') {
     lat = parseFloat(document.getElementById('newLocationLat').value);
@@ -194,7 +291,7 @@ saveNewLocationBtn.onclick = () => {
   if(!name) { showWarning('❌ Vul een naam in'); return; }
   if(isNaN(lat)) { showWarning('❌ Vul een geldige breedtegraad in'); return; }
   if(isNaN(lng)) { showWarning('❌ Vul een geldige lengtegraad in'); return; }
-  userDefinedLocations.push({ name, lat, lng, radius });
+  userDefinedLocations.push({ name, lat, lng, radius, clientId: clientId || null });
   saveUserLocations();
   addLocationForm.style.display = 'none';
   showAddLocationFormBtn.style.display = 'block';
@@ -205,6 +302,8 @@ saveNewLocationBtn.onclick = () => {
   document.getElementById('newLocationRadius').value = '500';
   showWarning(`✅ Locatie "${name}" toegevoegd!`);
 };
+
+document.getElementById('applyFilterBtn').onclick = applyFilter;
 
 initMap();
 loadUserLocations();

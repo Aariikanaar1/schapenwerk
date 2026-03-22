@@ -43,6 +43,7 @@
     .client-suggestions { position: absolute; background: white; border: 1px solid #e2e8f0; border-radius: 16px; max-height: 200px; overflow-y: auto; z-index: 100; display: none; }
     .client-suggestion-item { padding: 10px 14px; cursor: pointer; }
     .client-suggestion-item:hover { background: #f1f5f9; }
+    .stop-item { background: #f8fafc; border-radius: 16px; padding: 12px; margin-bottom: 12px; }
   </style>
 </head>
 <body>
@@ -107,7 +108,7 @@ let routePoints = [];
 let currentSessionSteps = 0, stepCounterActive = true, isWalking = false, lastRoutePointTime = 0, lastStepTime = 0;
 let contacts = [];
 
-// ========== HELPER ==========
+// ========== HELPER FUNCTIES ==========
 function formatTime(s){const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`}
 function formatTimestamp(d){if(!d)return'—';return new Date(d).toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})}
 function formatDateToDutch(d){return `${d.getDate()}-${d.getMonth()+1}-${d.getFullYear()}`}
@@ -117,11 +118,45 @@ function updateDisplays(){
   document.getElementById('travelBackDisplay').innerText=formatTime(travelBackSeconds);
 }
 function getDistanceBetweenCoords(l1,ln1,l2,ln2){const R=6371,dLat=(l2-l1)*Math.PI/180,dLon=(ln2-ln1)*Math.PI/180,a=Math.sin(dLat/2)**2+Math.cos(l1*Math.PI/180)*Math.cos(l2*Math.PI/180)*Math.sin(dLon/2)**2,c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));return R*c}
-async function getDetailedLocationName(lat,lng){
-  return new Promise(r=>{fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18`).then(res=>res.json()).then(d=>{const road=d.address?.road,town=d.address?.town||d.address?.city||d.address?.village;let result=road||town||`${lat.toFixed(5)},${lng.toFixed(5)}`;if(town&&road)result=`${result}, ${town}`;r(result)}).catch(()=>r(`${lat.toFixed(5)},${lng.toFixed(5)}`))})}
 function anyTimerActive(){return travelToRunning||workRunning||travelBackRunning}
 
-// ========== TIMER ==========
+// ========== VERBETERDE LOCATIE NAAM FUNCTIE ==========
+// Checkt eerst user-defined locaties (van locaties.html), anders reverse geocoding
+async function getDetailedLocationName(lat, lng) {
+  // Eerst checken of er een user-defined locatie is (van locaties.html)
+  const userDefinedLocations = JSON.parse(localStorage.getItem('userDefinedLocations') || '[]');
+  for (const loc of userDefinedLocations) {
+    const distance = getDistanceBetweenCoords(lat, lng, loc.lat, loc.lng);
+    if (distance * 1000 <= loc.radius) {
+      console.log(`Locatie "${loc.name}" gevonden binnen ${loc.radius}m`);
+      return loc.name;
+    }
+  }
+  
+  // Anders de normale reverse geocoding
+  return new Promise((resolve) => {
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`)
+      .then(r => r.json()).then(data => {
+        const road = data.address?.road;
+        const houseNumber = data.address?.house_number;
+        const town = data.address?.town || data.address?.city || data.address?.village;
+        let result = '';
+        if(road) {
+          result = houseNumber ? `${road} ${houseNumber}` : road;
+        } else if(town) {
+          result = town;
+        } else {
+          result = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        }
+        if(town && road && !result.includes(town)) {
+          result = `${result}, ${town}`;
+        }
+        resolve(result);
+      }).catch(() => resolve(`${lat.toFixed(5)}, ${lng.toFixed(5)}`));
+  });
+}
+
+// ========== TIMER FUNCTIES ==========
 function startTravelTo(){if(workRunning)stopWork();if(travelBackRunning)stopTravelBack();if(!startWorkdayTime)startWorkdayTime=new Date().toISOString();travelToRunning=true;travelToStartTime=new Date().toISOString();if(travelToInterval)clearInterval(travelToInterval);travelToInterval=setInterval(()=>{if(travelToRunning){travelToSeconds++;updateDisplays();saveWorkState()}},1000);updateButtons();saveWorkState()}
 function stopTravelTo(){travelToRunning=false;if(travelToInterval)clearInterval(travelToInterval);travelToInterval=null;updateButtons();saveWorkState()}
 function startWork(){if(travelToRunning)stopTravelTo();if(travelBackRunning)stopTravelBack();if(!startWorkdayTime)startWorkdayTime=new Date().toISOString();workRunning=true;workStartTime=new Date().toISOString();if(workInterval)clearInterval(workInterval);workInterval=setInterval(()=>{if(workRunning){workSeconds++;updateDisplays();saveWorkState()}},1000);updateButtons();saveWorkState()}
@@ -159,53 +194,196 @@ if (window.DeviceMotionEvent) {
   });
 }
 
-// ========== GPS ==========
+// ========== GPS FUNCTIES ==========
 function processGpsPosition(p){if(!document.getElementById('trackingToggle')?.checked)return;if(gpsPaused)return;const now=Date.now(),np={lat:p.coords.latitude,lng:p.coords.longitude},sp=p.coords.speed?p.coords.speed*3.6:0;if(lastGpsPosition){const dist=Math.sqrt(Math.pow(np.lat-lastGpsPosition.lat,2)+Math.pow(np.lng-lastGpsPosition.lng,2))*111;if(dist<0.02){totalGpsDistance+=dist;if(sp>5||!isWalking)totalDrivingDistance+=dist;if(now-lastRoutePointTime>=10000){routePoints.push({lat:np.lat,lng:np.lng,type:isWalking?'walking':'driving',time:now});lastRoutePointTime=now;saveWorkState()}}}lastGpsPosition=np}
 function startGeoLocation(){if(geoWatchId)return;if(!navigator.geolocation){document.getElementById('gpsStatusMsg').innerText='❌ GPS niet ondersteund';return}document.getElementById('gpsStatusMsg').innerText='📍 GPS actief';geoWatchId=navigator.geolocation.watchPosition(processGpsPosition,err=>{document.getElementById('gpsStatusMsg').innerText='❌ GPS fout'},{enableHighAccuracy:true,maximumAge:5000,timeout:15000})}
 function stopGeoLocation(){if(geoWatchId){navigator.geolocation.clearWatch(geoWatchId);geoWatchId=null}}
 document.getElementById('trackingToggle').onchange=e=>{if(e.target.checked){startGeoLocation();document.getElementById('gpsControls').style.display='flex'}else{stopGeoLocation();document.getElementById('gpsControls').style.display='none'}};
 document.getElementById('pauseGpsBtn').onclick=()=>{gpsPaused=true;document.getElementById('pauseGpsBtn').style.display='none';document.getElementById('resumeGpsBtn').style.display='block'};
 document.getElementById('resumeGpsBtn').onclick=()=>{gpsPaused=false;document.getElementById('pauseGpsBtn').style.display='block';document.getElementById('resumeGpsBtn').style.display='none'};
-document.getElementById('addLocationBtn').onclick=async()=>{if(lastGpsPosition){const loc=await getDetailedLocationName(lastGpsPosition.lat,lastGpsPosition.lng),startOdo=parseFloat(document.getElementById('startOdo').value)||0;stops.push({location:loc,startTime:new Date(),endTime:new Date(),startOdo:startOdo+totalGpsDistance,endOdo:startOdo+totalGpsDistance,lat:lastGpsPosition.lat,lng:lastGpsPosition.lng,isWalking:isWalking});renderStopsList();saveWorkState();if(travelToRunning && !workRunning && !travelBackRunning){stopTravelTo();startWork();showWarning('📍 Stop geregistreerd! Automatisch overgeschakeld naar werktijd.')}}};
 
-function showWarning(msg){window.parent.postMessage({type:'warning',message:msg},'*');}
-function renderStopsList(){const c=document.getElementById('autoStopsContainer');if(!c)return;if(!stops.length){c.innerHTML='<div class="card">📍 Nog geen stops</div>';return}c.innerHTML=stops.map((s,i)=>`<div style="background:#f8fafc;border-radius:16px;padding:12px;margin-bottom:12px;${s.isWalking?'border-left:3px solid #ef4444;':''}"><div><strong>${s.isWalking?'🚶‍♂️':'📍'} ${s.location}</strong></div><div style="font-size:0.7rem">🕒 ${formatTimestamp(s.startTime)} - ${formatTimestamp(s.endTime)}</div><button onclick="removeStop(${i})" class="btn-small" style="margin-top:8px;background:#ef4444">🗑️ Verwijder</button></div>`).join('')}
+// ========== STOP TOEVOEGEN MET VERBETERDE LOCATIE NAAM ==========
+document.getElementById('addLocationBtn').onclick=async()=>{
+  if(lastGpsPosition){
+    const locName = await getDetailedLocationName(lastGpsPosition.lat, lastGpsPosition.lng);
+    const startOdo = parseFloat(document.getElementById('startOdo').value) || 0;
+    const newStop = {
+      location: locName,
+      startTime: new Date(),
+      endTime: new Date(),
+      startOdo: startOdo + totalGpsDistance,
+      endOdo: startOdo + totalGpsDistance,
+      lat: lastGpsPosition.lat,
+      lng: lastGpsPosition.lng,
+      isWalking: isWalking
+    };
+    stops.push(newStop);
+    renderStopsList();
+    saveWorkState();
+    
+    // Automatisch overschakelen naar werktijd als heenweg aan staat
+    if(travelToRunning && !workRunning && !travelBackRunning){
+      stopTravelTo();
+      startWork();
+      showWarning('📍 Stop geregistreerd! Automatisch overgeschakeld naar werktijd.');
+    }
+  }
+};
+
+function renderStopsList(){
+  const c=document.getElementById('autoStopsContainer');
+  if(!c)return;
+  if(!stops.length){c.innerHTML='<div class="card" style="padding:12px;">📍 Nog geen stops</div>';return}
+  c.innerHTML=stops.map((s,i)=>`
+    <div class="stop-item" style="${s.isWalking?'border-left:3px solid #ef4444;':''}">
+      <div><strong>${s.isWalking?'🚶‍♂️':'📍'} ${s.location}</strong></div>
+      <div style="font-size:0.7rem">🕒 ${formatTimestamp(s.startTime)} - ${formatTimestamp(s.endTime)}</div>
+      ${s.lat ? `<div style="font-size:0.6rem; color:#64748b;">📌 ${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</div>` : ''}
+      <button onclick="removeStop(${i})" class="btn-small" style="margin-top:8px; background:#ef4444;">🗑️ Verwijder</button>
+    </div>
+  `).join('');
+}
 window.removeStop=i=>{stops.splice(i,1);renderStopsList();saveWorkState()};
 
 // ========== FOTO'S ==========
-function renderPhotoList(){const c=document.getElementById('photoPreview');if(!c)return;if(!sessionPhotos.length){c.innerHTML='';return}c.innerHTML=sessionPhotos.map((p,i)=>`<div class="photo-thumb"><img src="${p.dataUrl}" onclick="window.open('${p.dataUrl}')"><div class="photo-delete" onclick="removePhoto(${i})">✕</div></div>`).join('')}
+function renderPhotoList(){
+  const c=document.getElementById('photoPreview');
+  if(!c)return;
+  if(!sessionPhotos.length){c.innerHTML='';return}
+  c.innerHTML=sessionPhotos.map((p,i)=>`
+    <div class="photo-thumb">
+      <img src="${p.dataUrl}" onclick="window.open('${p.dataUrl}')">
+      <div class="photo-delete" onclick="removePhoto(${i})">✕</div>
+    </div>
+  `).join('');
+}
 window.removePhoto=i=>{sessionPhotos.splice(i,1);renderPhotoList();saveWorkState()};
 function addPhoto(d){sessionPhotos.push({dataUrl:d,timestamp:new Date().toISOString()});renderPhotoList();saveWorkState()}
 document.getElementById('takePhotoBtn').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='image/*';i.capture='environment';i.onchange=e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>addPhoto(ev.target.result);r.readAsDataURL(f)}};i.click()};
 document.getElementById('uploadPhotoBtn').onclick=()=>{const i=document.createElement('input');i.type='file';i.accept='image/*';i.onchange=e=>{const f=e.target.files[0];if(f){const r=new FileReader();r.onload=ev=>addPhoto(ev.target.result);r.readAsDataURL(f)}};i.click()};
 
-// ========== STATE ==========
-function saveWorkState(){localStorage.setItem('werkState',JSON.stringify({travelToSeconds,travelToRunning,travelToStartTime,workSeconds,workRunning,workStartTime,travelBackSeconds,travelBackRunning,travelBackStartTime,startWorkdayTime,clientName:document.getElementById('clientName')?.value||'',startOdo:document.getElementById('startOdo')?.value||'',endOdo:document.getElementById('endOdo')?.value||'',workNotes:document.getElementById('workNotes')?.value||'',stops,totalGpsDistance,totalDrivingDistance,sessionPhotos,routePoints,currentSessionSteps}))}
+// ========== STATE OPSLAAN ==========
+function saveWorkState(){
+  localStorage.setItem('werkState',JSON.stringify({
+    travelToSeconds,travelToRunning,travelToStartTime,workSeconds,workRunning,workStartTime,
+    travelBackSeconds,travelBackRunning,travelBackStartTime,startWorkdayTime,
+    clientName:document.getElementById('clientName')?.value||'',
+    startOdo:document.getElementById('startOdo')?.value||'',endOdo:document.getElementById('endOdo')?.value||'',
+    workNotes:document.getElementById('workNotes')?.value||'',stops,totalGpsDistance,totalDrivingDistance,sessionPhotos,
+    routePoints,currentSessionSteps
+  }));
+}
 setInterval(saveWorkState,2000);
-function loadWorkState(){const s=localStorage.getItem('werkState');if(s)try{const d=JSON.parse(s);travelToSeconds=d.travelToSeconds||0;travelToRunning=d.travelToRunning||false;travelToStartTime=d.travelToStartTime;workSeconds=d.workSeconds||0;workRunning=d.workRunning||false;workStartTime=d.workStartTime;travelBackSeconds=d.travelBackSeconds||0;travelBackRunning=d.travelBackRunning||false;travelBackStartTime=d.travelBackStartTime;startWorkdayTime=d.startWorkdayTime;if(document.getElementById('clientName'))document.getElementById('clientName').value=d.clientName||'';if(document.getElementById('startOdo'))document.getElementById('startOdo').value=d.startOdo||'';if(document.getElementById('endOdo'))document.getElementById('endOdo').value=d.endOdo||'';if(document.getElementById('workNotes'))document.getElementById('workNotes').value=d.workNotes||'';stops=d.stops||[];totalGpsDistance=d.totalGpsDistance||0;totalDrivingDistance=d.totalDrivingDistance||0;sessionPhotos=d.sessionPhotos||[];routePoints=d.routePoints||[];currentSessionSteps=d.currentSessionSteps||0;updateDisplays();updateButtons();renderStopsList();renderPhotoList()}catch(e){}}
-function endWorkday(){const totalKm=totalGpsDistance;const session={id:Date.now(),startWorkdayTime:startWorkdayTime||new Date().toISOString(),startWorkTime:workStartTime,endWorkTime:new Date().toISOString(),travelToStartTime,travelBackStartTime,client:document.getElementById('clientName').value.trim()||'Onbekend',travelToSeconds,workSeconds,travelBackSeconds,startOdo:parseFloat(document.getElementById('startOdo').value)||0,endOdo:parseFloat(document.getElementById('endOdo').value)||0,totalKm,totalDrivingKm:totalDrivingDistance,notes:document.getElementById('workNotes').value||'',routePoints:[...routePoints],stops:[...stops],photos:[...sessionPhotos],totalSteps:currentSessionSteps,totalEarnings:(workSeconds/3600)*HOURLY_RATE,kmCompensation:totalDrivingDistance*KM_RATE,totalPayout:((workSeconds/3600)*HOURLY_RATE)+(totalDrivingDistance*KM_RATE),hourlyRate:HOURLY_RATE,kmRate:KM_RATE};const sessions=JSON.parse(localStorage.getItem('workSessionsList')||'[]');sessions.push(session);localStorage.setItem('workSessionsList',JSON.stringify(sessions));let stepStats=JSON.parse(localStorage.getItem('stepStats')||'[]');stepStats.push({date:new Date().toISOString(),steps:currentSessionSteps,sessionId:session.id});localStorage.setItem('stepStats',JSON.stringify(stepStats));travelToSeconds=workSeconds=travelBackSeconds=0;travelToRunning=workRunning=travelBackRunning=false;startWorkdayTime=null;stops=[];sessionPhotos=[];totalGpsDistance=0;totalDrivingDistance=0;routePoints=[];currentSessionSteps=0;if(document.getElementById('endOdo'))document.getElementById('endOdo').value='';if(document.getElementById('workNotes'))document.getElementById('workNotes').value='';renderStopsList();renderPhotoList();updateDisplays();updateButtons();saveWorkState();document.getElementById('workStatusMsg').innerHTML='✅ Werkdag opgeslagen!';const s2=JSON.parse(localStorage.getItem('workSessionsList')||'[]');if(s2.length>0&&document.getElementById('startOdo'))document.getElementById('startOdo').value=s2[s2.length-1].endOdo||'';updateKmStats();}
+function loadWorkState(){
+  const s=localStorage.getItem('werkState');
+  if(s)try{
+    const d=JSON.parse(s);
+    travelToSeconds=d.travelToSeconds||0;travelToRunning=d.travelToRunning||false;travelToStartTime=d.travelToStartTime;
+    workSeconds=d.workSeconds||0;workRunning=d.workRunning||false;workStartTime=d.workStartTime;
+    travelBackSeconds=d.travelBackSeconds||0;travelBackRunning=d.travelBackRunning||false;travelBackStartTime=d.travelBackStartTime;
+    startWorkdayTime=d.startWorkdayTime;
+    if(document.getElementById('clientName'))document.getElementById('clientName').value=d.clientName||'';
+    if(document.getElementById('startOdo'))document.getElementById('startOdo').value=d.startOdo||'';
+    if(document.getElementById('endOdo'))document.getElementById('endOdo').value=d.endOdo||'';
+    if(document.getElementById('workNotes'))document.getElementById('workNotes').value=d.workNotes||'';
+    stops=d.stops||[];totalGpsDistance=d.totalGpsDistance||0;totalDrivingDistance=d.totalDrivingDistance||0;
+    sessionPhotos=d.sessionPhotos||[];routePoints=d.routePoints||[];currentSessionSteps=d.currentSessionSteps||0;
+    updateDisplays();updateButtons();renderStopsList();renderPhotoList();
+  }catch(e){}
+}
+
+// ========== EINDE WERKDAG ==========
+function endWorkday(){
+  const totalKm=totalGpsDistance;
+  const session={
+    id:Date.now(),startWorkdayTime:startWorkdayTime||new Date().toISOString(),
+    startWorkTime:workStartTime,endWorkTime:new Date().toISOString(),
+    travelToStartTime,travelBackStartTime,
+    client:document.getElementById('clientName').value.trim()||'Onbekend',
+    travelToSeconds,workSeconds,travelBackSeconds,
+    startOdo:parseFloat(document.getElementById('startOdo').value)||0,endOdo:parseFloat(document.getElementById('endOdo').value)||0,
+    totalKm,totalDrivingKm:totalDrivingDistance,
+    notes:document.getElementById('workNotes').value||'',
+    routePoints:[...routePoints],stops:[...stops],photos:[...sessionPhotos],
+    totalSteps:currentSessionSteps,
+    totalEarnings:(workSeconds/3600)*HOURLY_RATE,
+    kmCompensation:totalDrivingDistance*KM_RATE,
+    totalPayout:((workSeconds/3600)*HOURLY_RATE)+(totalDrivingDistance*KM_RATE),
+    hourlyRate:HOURLY_RATE,kmRate:KM_RATE
+  };
+  const sessions=JSON.parse(localStorage.getItem('workSessionsList')||'[]');
+  sessions.push(session);
+  localStorage.setItem('workSessionsList',JSON.stringify(sessions));
+  
+  let stepStats=JSON.parse(localStorage.getItem('stepStats')||'[]');
+  stepStats.push({date:new Date().toISOString(),steps:currentSessionSteps,sessionId:session.id});
+  localStorage.setItem('stepStats',JSON.stringify(stepStats));
+  
+  travelToSeconds=workSeconds=travelBackSeconds=0;travelToRunning=workRunning=travelBackRunning=false;startWorkdayTime=null;
+  stops=[];sessionPhotos=[];totalGpsDistance=0;totalDrivingDistance=0;routePoints=[];currentSessionSteps=0;
+  if(document.getElementById('endOdo'))document.getElementById('endOdo').value='';
+  if(document.getElementById('workNotes'))document.getElementById('workNotes').value='';
+  renderStopsList();renderPhotoList();updateDisplays();updateButtons();saveWorkState();
+  document.getElementById('workStatusMsg').innerHTML='✅ Werkdag opgeslagen!';
+  const s2=JSON.parse(localStorage.getItem('workSessionsList')||'[]');
+  if(s2.length>0&&document.getElementById('startOdo'))document.getElementById('startOdo').value=s2[s2.length-1].endOdo||'';
+  showWarning('✅ Werkdag opgeslagen!');
+}
 document.getElementById('endWorkdayBtn').onclick=endWorkday;
 
-// ========== CONTACTEN ==========
+// ========== CONTACTEN & SUGGESTIES ==========
 function loadContacts(){const s=localStorage.getItem('contacts');if(s)contacts=JSON.parse(s);}
 function getContactDisplayName(c){return c.company?.trim()||c.name||'Onbekend'}
 loadContacts();
-document.getElementById('clientName').addEventListener('input',()=>{const t=document.getElementById('clientName').value.toLowerCase(),s=document.getElementById('clientSuggestions');if(!t){s.style.display='none';return}const f=contacts.filter(c=>(c.name&&c.name.toLowerCase().includes(t))||(c.company&&c.company.toLowerCase().includes(t)));if(f.length){s.innerHTML=f.map(c=>`<div class="client-suggestion-item" data-name="${getContactDisplayName(c)}">${getContactDisplayName(c)}</div>`).join('');s.style.display='block';document.querySelectorAll('.client-suggestion-item').forEach(el=>el.onclick=()=>{document.getElementById('clientName').value=el.dataset.name;s.style.display='none';saveWorkState()})}else s.style.display='none'});
+
+document.getElementById('clientName').addEventListener('input',()=>{
+  const t=document.getElementById('clientName').value.toLowerCase(),s=document.getElementById('clientSuggestions');
+  if(!t){s.style.display='none';return}
+  const f=contacts.filter(c=>(c.name&&c.name.toLowerCase().includes(t))||(c.company&&c.company.toLowerCase().includes(t)));
+  if(f.length){
+    s.innerHTML=f.map(c=>`<div class="client-suggestion-item" data-name="${getContactDisplayName(c)}">${getContactDisplayName(c)}</div>`).join('');
+    s.style.display='block';
+    document.querySelectorAll('.client-suggestion-item').forEach(el=>el.onclick=()=>{
+      document.getElementById('clientName').value=el.dataset.name;
+      s.style.display='none';
+      saveWorkState();
+    });
+  }else s.style.display='none';
+});
 document.addEventListener('click',e=>{if(!document.getElementById('clientSuggestions').contains(e.target)&&e.target!==document.getElementById('clientName'))document.getElementById('clientSuggestions').style.display='none'});
 
 // ========== RATES ==========
-function updateRateDisplays(){const h=document.getElementById('hourlyRateInput'),k=document.getElementById('kmRateInput');if(h){h.value=HOURLY_RATE.toFixed(2);h.onchange=()=>{HOURLY_RATE=parseFloat(h.value);localStorage.setItem('hourlyRate',HOURLY_RATE)}}if(k){k.value=KM_RATE.toFixed(2);k.onchange=()=>{KM_RATE=parseFloat(k.value);localStorage.setItem('kmRate',KM_RATE);if(KM_RATE>0.23)document.getElementById('kmRateWarning').style.display='block';else document.getElementById('kmRateWarning').style.display='none'}}}
+function updateRateDisplays(){
+  const h=document.getElementById('hourlyRateInput'),k=document.getElementById('kmRateInput');
+  if(h){h.value=HOURLY_RATE.toFixed(2);h.onchange=()=>{HOURLY_RATE=parseFloat(h.value);localStorage.setItem('hourlyRate',HOURLY_RATE)}}
+  if(k){k.value=KM_RATE.toFixed(2);k.onchange=()=>{KM_RATE=parseFloat(k.value);localStorage.setItem('kmRate',KM_RATE);if(KM_RATE>0.23)document.getElementById('kmRateWarning').style.display='block';else document.getElementById('kmRateWarning').style.display='none'}}
+}
 function loadRates(){const h=localStorage.getItem('hourlyRate');if(h)HOURLY_RATE=parseFloat(h);const k=localStorage.getItem('kmRate');if(k)KM_RATE=parseFloat(k);updateRateDisplays()}
 loadRates();
 
-// ========== LOAD ==========
-function updateKmStats(){const ws=JSON.parse(localStorage.getItem('workSessionsList')||'[]');let total=0,business=0;ws.forEach(s=>{const km=s.totalKm||0;total+=km;business+=s.totalDrivingKm||0});}
-loadWorkState();
+// ========== TOGGLE STATES ==========
+function loadToggleStates(){
+  const g=localStorage.getItem('gpsToggleState'),s=localStorage.getItem('stepToggleState');
+  if(g==='false')document.getElementById('trackingToggle').checked=false;
+  else{document.getElementById('trackingToggle').checked=true;startGeoLocation();document.getElementById('gpsControls').style.display='flex'}
+  if(s==='false'){document.getElementById('stepCounterToggle').checked=false;stepCounterActive=false;document.getElementById('stepCounterCard').style.display='none'}
+  else{document.getElementById('stepCounterToggle').checked=true;stepCounterActive=true;document.getElementById('stepCounterCard').style.display='block'}
+}
+document.getElementById('stepCounterToggle').onchange=e=>{localStorage.setItem('stepToggleState',e.target.checked);stepCounterActive=e.target.checked;document.getElementById('stepCounterCard').style.display=e.target.checked?'block':'none'};
+document.getElementById('trackingToggle').onchange=e=>{localStorage.setItem('gpsToggleState',e.target.checked)};
 
-// ========== STEP TOGGLE ==========
-document.getElementById('stepCounterToggle').onchange=e=>{stepCounterActive=e.target.checked;document.getElementById('stepCounterCard').style.display=e.target.checked?'block':'none'};
-const stepState=localStorage.getItem('stepToggleState');if(stepState==='false'){document.getElementById('stepCounterToggle').checked=false;stepCounterActive=false;document.getElementById('stepCounterCard').style.display='none'}else{document.getElementById('stepCounterToggle').checked=true;stepCounterActive=true;document.getElementById('stepCounterCard').style.display='block'}
-const gpsState=localStorage.getItem('gpsToggleState');if(gpsState==='false')document.getElementById('trackingToggle').checked=false;else{document.getElementById('trackingToggle').checked=true;startGeoLocation();document.getElementById('gpsControls').style.display='flex'}
+// ========== WARNING FUNCTIE ==========
+function showWarning(msg){
+  if(window.parent && window.parent.postMessage){
+    window.parent.postMessage({type:'warning',message:msg},'*');
+  }else{
+    alert(msg);
+  }
+}
+
+// ========== INIT ==========
+loadWorkState();
+loadToggleStates();
 </script>
 </body>
 </html>
