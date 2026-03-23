@@ -1,5 +1,6 @@
 {
-  "version": "4.0",
-  "date": "21 maart 2026",
-  "whatsnew": "📱 App nu installeerbaar als PWA\n🐑 Nieuwe naam: Schapenwerk\n📍 Betere locatieherkenning\n👣 Stappenteller werkt nu correct"
+  "version": "1.0.1",
+  "date": "23 maart 2026",
+  "downloadUrl": "https://aariikanaar1.github.io/schapenwerk/Schapenwerk.apk",
+  "whatsnew": "✓ Schuifmenu werkt nu\n✓ Bugfixes\n✓ Betere stabiliteit"
 }
